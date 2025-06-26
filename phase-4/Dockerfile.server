@@ -1,0 +1,10 @@
+# Dockerfile.server
+FROM debian:bullseye
+
+RUN apt-get update && apt-get install -y build-essential && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY server.c .
+RUN gcc server.c -o server -lpthread
+EXPOSE 9001
+CMD ["./server"]
+
