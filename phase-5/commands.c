@@ -6,6 +6,8 @@
 #include "motd.h"
 #include "utils.h"
 #include "client.h"
+#include "party.h"
+#include <stdint.h>
 
 #include <ctype.h>
 #include <stdio.h>
@@ -42,11 +44,12 @@ int handle_command(const char *cmdline, client_t *cli) {
             "\n\033[1mAvailable Commands:\033[0m\n"
             "/help\n/whoami\n/users\n/ping\n/time\n/uptime\n/motd\n"
             "/lastseen <user>\n"
+            "/createparty \n/joinparty <code>\n/party\n/leaveparty\n"
             "%s\n",
             cli->is_admin ?
                 "/kick <user>\n/ban <user>\n/unban <user>\n/banlist\n"
                 "/mute <user>\n/unmute <user>\n/mutelist\n"
-                "/broadcast <msg>\n/log\n/shutdown\n/setmotd <msg>\n"
+                "/broadcast <msg>\n/log\n/shutdown\n/setmotd <msg>\n/msg <user> <message>\n"
                 : "");
         return 1;
     }
@@ -61,14 +64,19 @@ int handle_command(const char *cmdline, client_t *cli) {
         send_to_client(cli, "pong\n");
         return 1;
     }
+    
+    if (strcmp(command, "listparties") == 0) {
+    list_parties(cli);
+    return 1;
+    }
 
     if (strcmp(command, "users") == 0) {
-        send_to_client(cli, "Connected users:\n");
-        for (int i = 0; i < MAX_CLIENTS; ++i)
-            if (clients[i])
-                send_to_client(cli, " - %s%s\n", clients[i]->username,
-                    clients[i]->is_admin ? " (admin)" : "");
-        return 1;
+    send_to_client(cli, "Connected users in your party:\n");
+    for (int i = 0; i < MAX_CLIENTS; ++i)
+        if (clients[i] && strcmp(clients[i]->party_code, cli->party_code) == 0)
+            send_to_client(cli, " - %s%s\n", clients[i]->username,
+                clients[i]->is_admin ? " (admin)" : "");
+    return 1;
     }
 
     if (strcmp(command, "time") == 0) {
@@ -105,7 +113,91 @@ int handle_command(const char *cmdline, client_t *cli) {
         return 1;
     }
 
-    // === Admin Commands ===
+
+    if (strcmp(command, "createparty") == 0) {
+    char partycode[PARTY_CODE_LEN];
+
+    if (!arg1 || strlen(arg1) == 0) {
+        const char *charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        srand(time(NULL) ^ (intptr_t)cli);
+        for (int i = 0; i < 6; ++i)
+            partycode[i] = charset[rand() % 36];
+        partycode[6] = '\0';
+    } else {
+        strncpy(partycode, arg1, PARTY_CODE_LEN);
+    }
+
+    
+    if (party_exists(partycode)) {
+        send_to_client(cli, "\033[1;31m[SERVER] Party already exists.\033[0m\n");
+    } else if (create_party(partycode)) {
+        strncpy(cli->party_code, partycode, PARTY_CODE_LEN);
+        send_to_client(cli, "\033[1;32m[SERVER] Party '%s' created. Share the code to invite friends.\033[0m\n", partycode);
+    } else {
+        send_to_client(cli, "\033[1;31m[SERVER] Failed to create party. Limit reached?\033[0m\n");
+    }
+
+    return 1;
+}
+
+    if (strcmp(command, "joinparty") == 0) {
+        if (!arg1 || strlen(arg1) == 0) {
+            send_to_client(cli, "\033[1;33mUsage:\033[0m /joinparty <code>\n");
+            return 1;
+        }
+
+        if (party_exists(arg1)) {
+            strncpy(cli->party_code, arg1, PARTY_CODE_LEN);
+            log_event("Party change: %s -> [%s]", cli->username, cli->party_code);
+            send_to_client(cli, "\033[1;34m[SERVER] Joined party '%s'\033[0m\n", arg1);
+
+        } else {
+            send_to_client(cli, "\033[1;31m[SERVER] Party '%s' does not exist.\033[0m\n", arg1);
+        }
+        return 1;
+    }
+
+    if (strcmp(command, "party") == 0) {
+        send_to_client(cli, "You are in party: \033[1;36m%s\033[0m\n",
+            strlen(cli->party_code) ? cli->party_code : "public");
+        return 1;
+    }
+
+    if (strcmp(command, "leaveparty") == 0) {
+    cli->party_code[0] = '\0';
+    log_event("Party leave: %s left their party", cli->username);
+    send_to_client(cli, "\033[1;34m[SERVER] You left your current party and joined public chat.\033[0m\n");
+    return 1;
+    }
+
+    if (strcmp(command, "msg") == 0) {
+    if (strlen(arg1) == 0 || strlen(arg2) == 0) {
+        send_to_client(cli, "Usage: /msg <username> <message>\n");
+        return 1;
+    }
+
+    client_t *target = NULL;
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i] && strcmp(clients[i]->username, arg1) == 0) {
+            target = clients[i];
+            break;
+        }
+    }
+
+    if (!target) {
+        send_to_client(cli, "\033[1;31m[SERVER] User '%s' not found or offline.\033[0m\n", arg1);
+        return 1;
+    }
+
+    // Send to target
+    send_to_client(target, "\033[1;35m[PM from %s]:\033[0m %s\n", cli->username, arg2);
+
+    // Echo back to sender
+    send_to_client(cli, "\033[1;36m[PM to %s]:\033[0m %s\n", target->username, arg2);
+    return 1;
+}
+
+
     if (cli->is_admin) {
         if (strcmp(command, "kick") == 0)
             return kick_user(arg1, cli);
@@ -119,8 +211,8 @@ int handle_command(const char *cmdline, client_t *cli) {
         if (strcmp(command, "banlist") == 0){
            list_banned(cli);
            return 0;
-
         }
+
         if (strcmp(command, "mute") == 0)
             return mute_user(arg1, cli);
 
@@ -130,8 +222,8 @@ int handle_command(const char *cmdline, client_t *cli) {
         if (strcmp(command, "mutelist") == 0){
             list_muted(cli);
             return 0;
-    
         }
+
         if (strcmp(command, "broadcast") == 0) {
             char fullmsg[BUFFER_SIZE];
             snprintf(fullmsg, sizeof(fullmsg), "%s %s", arg1, arg2);
@@ -143,6 +235,7 @@ int handle_command(const char *cmdline, client_t *cli) {
             send_log_to_client(cli);
             return 0;
         }
+
         if (strcmp(command, "shutdown") == 0) {
             broadcast_system("Server is shutting down.");
             exit(0);

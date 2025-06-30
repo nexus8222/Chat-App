@@ -4,6 +4,26 @@
 #include "log.h"
 #include "common.h"
 #include <string.h> 
+#include <stdarg.h>
+
+void log_event(const char *fmt, ...) {
+    char ts[64];
+    timestamp(ts, sizeof(ts));
+
+    char msg[2048];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, args);
+    va_end(args);
+
+    printf("\033[1;35m[%s] %s\033[0m\n", ts, msg);
+
+    FILE *fp = fopen("server.log", "a");
+    if (fp) {
+        fprintf(fp, "[%s] %s\n", ts, msg);
+        fclose(fp);
+    }
+}
 void timestamp(char *buffer, size_t len) {
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
@@ -39,6 +59,7 @@ void send_log_to_client(client_t *cli) {
     while (fgets(line, sizeof(line), fp)) {
         send(cli->sockfd, line, strlen(line), 0);
     }
+    
 
     fclose(fp);
 }

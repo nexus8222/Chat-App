@@ -1,4 +1,4 @@
-// Updated server.c with utils.h integration
+// server.c (Party-safe broadcast version)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +15,7 @@
 #include "log.h"
 #include "banlist.h"
 #include "utils.h"
+#include "party.h"  
 
 #define PORT 9001
 
@@ -24,13 +25,14 @@ time_t server_start_time;
 
 void trim_newline(char *s) {
     int len = strlen(s);
-    if (len > 0 && s[len-1] == '\n') s[len-1] = '\0';
+    if (len > 0 && s[len - 1] == '\n') s[len - 1] = '\0';
 }
 
-void broadcast(char *msg, int sender_sock) {
+
+void party_broadcast_system(const char *msg, int except_sock) {
     pthread_mutex_lock(&clients_mutex);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients[i] && clients[i]->sockfd != sender_sock) {
+        if (clients[i] && clients[i]->sockfd != except_sock) {
             send(clients[i]->sockfd, msg, strlen(msg), 0);
         }
     }
@@ -84,25 +86,23 @@ void *handle_client(void *arg) {
             pthread_exit(NULL);
         }
     }
-    strncpy(cli->username, name, sizeof(cli->username));
     if (strcmp(cli->username, "admin") == 0) {
         cli->is_admin = 1;
     }
     pthread_mutex_unlock(&clients_mutex);
 
-
-
     cli->join_time = time(NULL);
     inet_ntop(AF_INET, &cli->address.sin_addr, cli->ip, INET_ADDRSTRLEN);
     log_connection(cli->username, cli->ip);
-   
 
+   
+    strncpy(cli->party_code, "public", PARTY_CODE_LEN);
+
+    add_client(cli);
 
     char join_msg[128];
     snprintf(join_msg, sizeof(join_msg), "\033[1;32m[JOIN] %s has entered the chat.\033[0m\n", cli->username);
-    broadcast(join_msg, cli->sockfd);
-
-    add_client(cli);
+    party_broadcast_system(join_msg, cli->sockfd);
 
     send_to_client(cli, "\033[1;36mWelcome! Type /help for commands.\033[0m\n");
     send_to_client(cli, "\033[1;34m--- Message of the Day ---\033[0m\n");
@@ -123,19 +123,18 @@ void *handle_client(void *arg) {
 
         if (buffer[0] == '/') {
             if (handle_command(buffer, cli))
-                continue; // command handled, don't broadcast
+                continue; // command handled
         } else {
             char msg[2048];
             snprintf(msg, sizeof(msg), "\033[1m[%s]:\033[0m %s\n", cli->username, buffer);
-            broadcast(msg, cli->sockfd);
+            broadcast_message(msg, cli);  // ✅ Scoped by party
         }
     }
 
     char leave_msg[128];
     snprintf(leave_msg, sizeof(leave_msg), "\033[1;31m[LEAVE] %s has left the chat.\033[0m\n", cli->username);
-    broadcast(leave_msg, cli->sockfd);
+    party_broadcast_system(leave_msg, cli->sockfd);
     log_disconnection(cli->username, cli->ip);
-
 
     close(cli->sockfd);
     remove_client(cli->sockfd);
@@ -144,11 +143,7 @@ void *handle_client(void *arg) {
     return NULL;
 }
 
-
-
 int main() {
-
-    
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     if (listener < 0) {
         perror("Socket failed");
@@ -164,7 +159,7 @@ int main() {
 
     signal(SIGPIPE, SIG_IGN);
 
-    if (bind(listener, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+    if (bind(listener, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         perror("Bind failed");
         return 1;
     }
@@ -176,11 +171,11 @@ int main() {
 
     printf("Server started on port %d\n", PORT);
     log_server_start(PORT);
-    load_banlist(); 
+    load_banlist();
     server_start_time = time(NULL);
 
     while (1) {
-        int new_sock = accept(listener, (struct sockaddr*)&cli_addr, &cli_len);
+        int new_sock = accept(listener, (struct sockaddr *)&cli_addr, &cli_len);
         if (new_sock < 0) {
             perror("Accept failed");
             continue;
@@ -196,11 +191,13 @@ int main() {
         }
 
         client_t *cli = (client_t *)malloc(sizeof(client_t));
+        memset(cli, 0, sizeof(client_t));
         cli->sockfd = new_sock;
         cli->address = cli_addr;
         cli->is_admin = 0;
         cli->is_muted = 0;
         cli->last_seen = time(NULL);
+        strncpy(cli->party_code, "public", PARTY_CODE_LEN);
 
         pthread_t tid;
         pthread_create(&tid, NULL, handle_client, (void *)cli);

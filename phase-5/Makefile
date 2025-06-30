@@ -1,21 +1,23 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -pthread -O2
 
-SERVER_OBJ = server.o admin.o commands.o mute.o log.o banlist.o utils.o motd.o
-CLIENT_OBJ = client.o
+# Object files
+OBJ_SERVER = server.o admin.o commands.o mute.o log.o banlist.o utils.o motd.o party.o
+OBJ_CLIENT = client.o
 
-TARGETS = server client
+TARGET_SERVER = server
+TARGET_CLIENT = client
 
-all: $(TARGETS)
+all: $(TARGET_SERVER) $(TARGET_CLIENT)
 
-server: $(SERVER_OBJ)
-	$(CC) $(CFLAGS) -o server $(SERVER_OBJ)
+$(TARGET_SERVER): $(OBJ_SERVER)
+	$(CC) $(CFLAGS) -o $@ $^
 
-client: $(CLIENT_OBJ)
-	$(CC) $(CFLAGS) -o client $(CLIENT_OBJ)
+$(TARGET_CLIENT): $(OBJ_CLIENT)
+	$(CC) $(CFLAGS) -o $@ $^
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f *.o $(TARGETS)
+	rm -f *.o $(TARGET_SERVER) $(TARGET_CLIENT)

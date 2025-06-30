@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include "common.h"
+
 #define LENGTH 2048
 
 volatile sig_atomic_t flag = 0;
@@ -35,6 +36,7 @@ void *send_msg_handler(void *arg) {
         if (strcmp(message, "/exit") == 0) {
             break;
         } else {
+            // Send raw message to server
             send(sockfd, message, strlen(message), 0);
         }
         bzero(message, LENGTH);
@@ -48,6 +50,7 @@ void *recv_msg_handler(void *arg) {
     while (1) {
         int receive = recv(sockfd, message, LENGTH, 0);
         if (receive > 0) {
+            // Server prints filtered message (party-specific)
             printf("%s", message);
             fflush(stdout);
         } else if (receive == 0) {
@@ -95,6 +98,7 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    // Send username
     send(sockfd, username, 32, 0);
 
     printf("\033[1;32m[CLIENT] Connected. Type /exit to quit.\033[0m\n");
