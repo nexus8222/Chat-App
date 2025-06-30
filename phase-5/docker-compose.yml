@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  chat-server:
+    build: .
+    container_name: chat-server
+    ports:
+      - "9001:9001"
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
