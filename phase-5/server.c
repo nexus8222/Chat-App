@@ -122,7 +122,8 @@ void *handle_client(void *arg) {
         }
 
         if (buffer[0] == '/') {
-            handle_command(buffer, cli);
+            if (handle_command(buffer, cli))
+                continue; // command handled, don't broadcast
         } else {
             char msg[2048];
             snprintf(msg, sizeof(msg), "\033[1m[%s]:\033[0m %s\n", cli->username, buffer);

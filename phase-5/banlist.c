@@ -4,6 +4,7 @@
 #include <arpa/inet.h> 
 #include "banlist.h"
 #include "common.h"
+#include "client.h" 
 #define BAN_FILE "banned.txt"
 
 static char banned_ips[MAX_BANNED][INET_ADDRSTRLEN];
@@ -79,4 +80,20 @@ void load_banlist() {
     }
 
     fclose(fp);
+}
+ 
+void list_banned(client_t *cli) {
+    char buffer[BUFFER_SIZE];
+    snprintf(buffer, sizeof(buffer), "\033[1m[SERVER] Banned IPs:\033[0m\n");
+    send(cli->sockfd, buffer, strlen(buffer), 0);
+
+    if (banned_count == 0) {
+        send(cli->sockfd, "None\n", 5, 0);
+        return;
+    }
+
+    for (int i = 0; i < banned_count; ++i) {
+        snprintf(buffer, sizeof(buffer), "%s\n", banned_ips[i]);
+        send(cli->sockfd, buffer, strlen(buffer), 0);
+    }
 }

@@ -21,34 +21,41 @@ client_t* find_client_by_name(const char *name) {
     return NULL;
 }
 
-void kick_user(const char *target, client_t *requester) {
+int kick_user(const char *target, client_t *requester) {
     client_t *victim = find_client_by_name(target);
     if (!victim) {
         send_to_client(requester, "\033[1;33m[ADMIN] User not found.\033[0m\n");
-        return;
+        return 0;
     }
 
     send_to_client(victim, "\033[1;31m[SERVER] You have been kicked by admin.\033[0m\n");
     close(victim->sockfd);
+    return 1;
 }
 
-void ban_user(const char *target, client_t *requester) {
+int ban_user(const char *target, client_t *requester) {
     client_t *victim = find_client_by_name(target);
     if (victim) {
         ban_ip(victim->ip);
-
         send_to_client(victim, "\033[1;31m[SERVER] You are banned.\033[0m\n");
         close(victim->sockfd);
     } else {
-        ban_ip(target); // fallback — allow banning by IP
+        ban_ip(target);  // fallback for raw IP banning
     }
 
     send_to_client(requester, "\033[1;33m[ADMIN] Ban applied.\033[0m\n");
+    return 1;
 }
 
-void unban_user(const char *ip, client_t *requester) {
+int unban_user(const char *ip, client_t *requester) {
+    if (!is_ip_banned(ip)) {
+        send_to_client(requester, "\033[1;33m[ADMIN] IP not in ban list.\033[0m\n");
+        return 0;
+    }
+
     unban_ip(ip);
     send_to_client(requester, "\033[1;32m[ADMIN] Unban applied.\033[0m\n");
+    return 1;
 }
 
 int handle_admin_command(char *cmd, client_t *cli) {
@@ -60,21 +67,16 @@ int handle_admin_command(char *cmd, client_t *cli) {
     char arg[64];
 
     if (sscanf(cmd, "/kick %63s", arg) == 1) {
-        kick_user(arg, cli);
-        return 1;
+        return kick_user(arg, cli);
     } else if (sscanf(cmd, "/ban %63s", arg) == 1) {
-        ban_user(arg, cli);
-        return 1;
+        return ban_user(arg, cli);
     } else if (sscanf(cmd, "/unban %63s", arg) == 1) {
-        unban_user(arg, cli);
-        return 1;
+        return unban_user(arg, cli);
     } else if (sscanf(cmd, "/mute %63s", arg) == 1) {
-        mute_user(arg, cli);     // <- comes from mute.c now
-        return 1;
+        return mute_user(arg, cli);     // From mute.c
     } else if (sscanf(cmd, "/unmute %63s", arg) == 1) {
-        unmute_user(arg, cli);   // <- comes from mute.c now
-        return 1;
+        return unmute_user(arg, cli);   // From mute.c
     }
 
-    return 0; // Not matched — let handle_command() continue
+    return 0; // Not handled — fallback to other command processors
 }

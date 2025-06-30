@@ -1,10 +1,8 @@
-// common.h
 #ifndef COMMON_H
 #define COMMON_H
 
 #include <time.h>
 #include <netinet/in.h>  // for struct sockaddr_in
-#include "common.h"
 
 #define USERNAME_LEN 32
 #define BUFFER_SIZE 2048
@@ -20,6 +18,7 @@ typedef struct client {
     struct sockaddr_in address;  // used by inet_ntop etc.
     time_t join_time;
     time_t last_seen;
+    
     struct client *next;
 } client_t;
 

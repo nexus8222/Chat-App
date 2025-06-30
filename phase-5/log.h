@@ -7,4 +7,6 @@ void log_connection(const char *username, const char *ip);
 void log_disconnection(const char *username, const char *ip);
 void log_server_start(int port);
 
+void send_log_to_client(client_t *cli);
+
 #endif
