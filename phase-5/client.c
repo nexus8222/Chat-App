@@ -1,4 +1,5 @@
-// client.c (Final Phase 5 with Input Box)
+// client.c 
+//commented some important point for you guyzzzzzzzzzzzz...!
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
