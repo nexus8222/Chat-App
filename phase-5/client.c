@@ -1,12 +1,20 @@
-// client.c (Final Phase 5 version)
+// client.c (Final Phase 5 with Input Box)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <termios.h>
+#include <sys/select.h>
 #include "common.h"
+
+#define INPUT_BUFFER 1024
+char input[INPUT_BUFFER];
+int input_len = 0;
+struct termios orig_termios;
 
 #define LENGTH 2048
 
@@ -27,22 +35,17 @@ void catch_ctrl_c_and_exit(int sig) {
     flag = 1;
 }
 
-void *send_msg_handler(void *arg) {
-    char message[LENGTH] = {};
-    while (1) {
-        fgets(message, LENGTH, stdin);
-        str_trim_lf(message, LENGTH);
+void disable_raw_mode() {
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+}
 
-        if (strcmp(message, "/exit") == 0) {
-            break;
-        } else {
-            // Send raw message to server
-            send(sockfd, message, strlen(message), 0);
-        }
-        bzero(message, LENGTH);
-    }
-    flag = 1;
-    return NULL;
+void enable_raw_mode() {
+    tcgetattr(STDIN_FILENO, &orig_termios);
+    atexit(disable_raw_mode);
+
+    struct termios raw = orig_termios;
+    raw.c_lflag &= ~(ICANON | ECHO); // Disable canonical mode and echo
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
 void *recv_msg_handler(void *arg) {
@@ -50,8 +53,10 @@ void *recv_msg_handler(void *arg) {
     while (1) {
         int receive = recv(sockfd, message, LENGTH, 0);
         if (receive > 0) {
-            // Server prints filtered message (party-specific)
-            printf("%s", message);
+            // Clear input line
+            printf("\r\033[K%s\n", message);
+            // Redraw current input line
+            printf("> %s", input);
             fflush(stdout);
         } else if (receive == 0) {
             break;
@@ -59,6 +64,52 @@ void *recv_msg_handler(void *arg) {
         memset(message, 0, sizeof(message));
     }
     return NULL;
+}
+
+void chat_loop() {
+    fd_set readfds;
+    char ch;
+
+    while (1) {
+        if (flag) break;
+
+        FD_ZERO(&readfds);
+        FD_SET(STDIN_FILENO, &readfds);
+        FD_SET(sockfd, &readfds);
+        int maxfd = sockfd > STDIN_FILENO ? sockfd : STDIN_FILENO;
+
+        select(maxfd + 1, &readfds, NULL, NULL, NULL);
+
+        if (FD_ISSET(STDIN_FILENO, &readfds)) {
+            if (read(STDIN_FILENO, &ch, 1) <= 0) continue;
+
+            if (ch == 127 || ch == 8) {  // Backspace
+                if (input_len > 0) {
+                    input[--input_len] = '\0';
+                    printf("\r\033[K> %s", input);
+                    fflush(stdout);
+                }
+            } else if (ch == '\n') {
+                input[input_len] = '\0';
+                if (strcmp(input, "/exit") == 0) {
+                    flag = 1;
+                    break;
+                }
+                if (input_len > 0) {
+                    send(sockfd, input, input_len, 0);
+                }
+                input_len = 0;
+                input[0] = '\0';
+                printf("\r\033[K> ");
+                fflush(stdout);
+            } else if (ch >= 32 && ch <= 126 && input_len < INPUT_BUFFER - 1) {
+                input[input_len++] = ch;
+                input[input_len] = '\0';
+                printf("\r\033[K> %s", input);
+                fflush(stdout);
+            }
+        }
+    }
 }
 
 int main(int argc, char **argv) {
@@ -102,17 +153,19 @@ int main(int argc, char **argv) {
     send(sockfd, username, 32, 0);
 
     printf("\033[1;32m[CLIENT] Connected. Type /exit to quit.\033[0m\n");
+    printf("> ");
+    fflush(stdout);
 
-    pthread_t send_thread, recv_thread;
-    pthread_create(&send_thread, NULL, send_msg_handler, NULL);
+    enable_raw_mode();
+
+    pthread_t recv_thread;
     pthread_create(&recv_thread, NULL, recv_msg_handler, NULL);
 
-    while (1) {
-        if (flag) {
-            printf("\n\033[1;31m[CLIENT] Disconnected.\033[0m\n");
-            break;
-        }
-    }
+    chat_loop();
+
+    disable_raw_mode();
+
+    printf("\n\033[1;31m[CLIENT] Disconnected.\033[0m\n");
 
     close(sockfd);
     return EXIT_SUCCESS;
