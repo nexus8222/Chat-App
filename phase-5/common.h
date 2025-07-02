@@ -1,3 +1,5 @@
+//Handle which have all the commonly used system of varibales.
+//and some datasets
 #ifndef COMMON_H
 #define COMMON_H
 #define PARTY_CODE_LEN 64

@@ -1,4 +1,4 @@
-// server.c (Party-safe broadcast version)
+// server.c (Echo-to-sender fixed) ----> we're not getting our msges back so i modified the server!
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +15,7 @@
 #include "log.h"
 #include "banlist.h"
 #include "utils.h"
-#include "party.h"  
+#include "party.h"
 
 #define PORT 9001
 
@@ -95,7 +95,6 @@ void *handle_client(void *arg) {
     inet_ntop(AF_INET, &cli->address.sin_addr, cli->ip, INET_ADDRSTRLEN);
     log_connection(cli->username, cli->ip);
 
-   
     strncpy(cli->party_code, "public", PARTY_CODE_LEN);
 
     add_client(cli);
@@ -127,7 +126,7 @@ void *handle_client(void *arg) {
         } else {
             char msg[2048];
             snprintf(msg, sizeof(msg), "\033[1m[%s]:\033[0m %s\n", cli->username, buffer);
-            broadcast_message(msg, cli);  // ✅ Scoped by party
+            broadcast_message(msg, cli);  
         }
     }
 

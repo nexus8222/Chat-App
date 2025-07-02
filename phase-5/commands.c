@@ -1,3 +1,7 @@
+//commands.c
+//handle all commands logics and sharing via cli.
+
+
 #include "commands.h"
 #include "log.h"
 #include "banlist.h"
@@ -8,7 +12,6 @@
 #include "client.h"
 #include "party.h"
 #include <stdint.h>
-
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -117,7 +120,7 @@ int handle_command(const char *cmdline, client_t *cli) {
     if (strcmp(command, "createparty") == 0) {
     char partycode[PARTY_CODE_LEN];
 
-    if (!arg1 || strlen(arg1) == 0) {
+    if (strlen(arg1) == 0){
         const char *charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         srand(time(NULL) ^ (intptr_t)cli);
         for (int i = 0; i < 6; ++i)
@@ -141,7 +144,7 @@ int handle_command(const char *cmdline, client_t *cli) {
 }
 
     if (strcmp(command, "joinparty") == 0) {
-        if (!arg1 || strlen(arg1) == 0) {
+        if (strlen(arg1) == 0) {
             send_to_client(cli, "\033[1;33mUsage:\033[0m /joinparty <code>\n");
             return 1;
         }

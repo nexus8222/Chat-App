@@ -1,4 +1,7 @@
-// client.c (Final Phase 5 with Input Box)
+// client.c 
+//have included with emoji support inbuild input bar> and more features!
+//too more to be added 
+//@mistabazz is going to add security in admin login
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,8 +35,11 @@ void str_trim_lf(char *arr, int length) {
 }
 
 void catch_ctrl_c_and_exit(int sig) {
+    (void)sig;
     flag = 1;
+    write(STDOUT_FILENO, "\n\033[1;33m[CLIENT] Ctrl+C pressed, exiting...\033[0m\n", 47);
 }
+
 
 void disable_raw_mode() {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
@@ -49,13 +55,15 @@ void enable_raw_mode() {
 }
 
 void *recv_msg_handler(void *arg) {
+    (void)arg;
+    
     char message[LENGTH] = {};
     while (1) {
         int receive = recv(sockfd, message, LENGTH, 0);
         if (receive > 0) {
-            // Clear input line
+            // Clear current input line
             printf("\r\033[K%s\n", message);
-            // Redraw current input line
+            // Redraw input prompt
             printf("> %s", input);
             fflush(stdout);
         } else if (receive == 0) {
@@ -68,7 +76,7 @@ void *recv_msg_handler(void *arg) {
 
 void chat_loop() {
     fd_set readfds;
-    char ch;
+    unsigned char ch;
 
     while (1) {
         if (flag) break;
@@ -96,13 +104,13 @@ void chat_loop() {
                     break;
                 }
                 if (input_len > 0) {
-                    send(sockfd, input, input_len, 0);
+                    send(sockfd, input, strlen(input), 0);
                 }
                 input_len = 0;
                 input[0] = '\0';
                 printf("\r\033[K> ");
                 fflush(stdout);
-            } else if (ch >= 32 && ch <= 126 && input_len < INPUT_BUFFER - 1) {
+            } else if (input_len < INPUT_BUFFER - 4) {
                 input[input_len++] = ch;
                 input[input_len] = '\0';
                 printf("\r\033[K> %s", input);
@@ -149,7 +157,6 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    // Send username
     send(sockfd, username, 32, 0);
 
     printf("\033[1;32m[CLIENT] Connected. Type /exit to quit.\033[0m\n");
@@ -166,7 +173,6 @@ int main(int argc, char **argv) {
     disable_raw_mode();
 
     printf("\n\033[1;31m[CLIENT] Disconnected.\033[0m\n");
-
     close(sockfd);
     return EXIT_SUCCESS;
 }

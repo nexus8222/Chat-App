@@ -1,4 +1,5 @@
 // banlist.c
+//Handles banlist and storage related things
 #include <stdio.h>
 #include <string.h>
 #include <arpa/inet.h> 

@@ -8,4 +8,4 @@ int handle_command(const char *cmdline, client_t *cli);
 void broadcast_motd(client_t *requester);
 void broadcast_system(const char *msg);
 
-#endif
+#endif  

@@ -1,4 +1,8 @@
 // admin.c
+/*
+THIS PART CONTAINS ALL LOGICS 
+OF COMMANDS AVAILABLE TO ADMIN!
+*/
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
