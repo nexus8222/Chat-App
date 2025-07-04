@@ -3,6 +3,7 @@
 #ifndef COMMON_H
 #define COMMON_H
 #define PARTY_CODE_LEN 64
+#include <strings.h>
 
 #include <time.h>
 #include <netinet/in.h>  // for struct sockaddr_in
