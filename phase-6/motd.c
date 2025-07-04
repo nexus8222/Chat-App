@@ -4,7 +4,7 @@
 #include "motd.h"
 #include "utils.h"
 
-char motd[2048] = "Welcome to Phase 5 Chat Server!";
+char motd[2048] = "Welcome to Phase 6 Chat Server!";
 
 void load_motd() {
     FILE *fp = fopen("motd.txt", "r");

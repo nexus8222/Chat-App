@@ -48,6 +48,8 @@ void party_broadcast_system(const char *msg, int except_sock)
 void add_client(client_t *cl)
 {
     pthread_mutex_lock(&clients_mutex);
+    strcpy(cl->color, "\033[0;37m");
+
     for (int i = 0; i < MAX_CLIENTS; ++i)
     {
         if (!clients[i])
@@ -157,7 +159,11 @@ void *handle_client(void *arg)
         else
         {
             char msg[2048];
-            snprintf(msg, sizeof(msg), "\033[1m[%s]:\033[0m %s\n", cli->username, buffer);
+            snprintf(msg, sizeof(msg), "%s[%s]:%s %s\n",
+             cli->color,
+             cli->username,
+             COLOR_RESET,
+             buffer);
             broadcast_message(msg, cli);
             strncpy(cli->last_msg, buffer, BUFFER_SIZE);
             cli->last_msg_time = time(NULL);

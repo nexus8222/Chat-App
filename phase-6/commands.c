@@ -52,13 +52,94 @@ int handle_command(const char *cmdline, client_t *cli)
                        "/createparty [code]\n/joinparty <code>\n/party\n/leaveparty\n"
                        "/msg <user> <message>\n"
                        "/editlast <msg>\n"
-                       "/deletelast \n"
+                       "/deletelast \n/setcolor <color>\n/colorlist\n"
                        "%s\n",
                        cli->is_admin ? "/kick <user>\n/ban <user>\n/unban <user>\n/banlist\n"
                                        "/mute <user>\n/unmute <user>\n/mutelist\n"
-                                       "/broadcast <msg>\n/log\n/shutdown\n/setmotd <msg>\n"
+                                       "/broadcast <msg>\n/log\n/shutdown\n/setmotd <msg>\n/parties\n"
+                                       "/lockparty\n/invite <user>\n/partyinfo <code>\n "
 
                                      : "");
+        return 1;
+    }
+
+    if (strcmp(command, "lockparty") == 0 && cli->is_admin)
+    {
+        if (strlen(cli->party_code) == 0)
+        {
+            send_to_client(cli, "[SERVER] You are not in a party.\n");
+            return 1;
+        }
+
+        for (int i = 0; i < party_count; ++i)
+        {
+            if (strcmp(party_list[i].code, cli->party_code) == 0)
+            {
+                party_list[i].is_locked = 1;
+                send_to_client(cli, "[SERVER] Party '%s' is now locked.\n", cli->party_code);
+                return 1;
+            }
+        }
+
+        send_to_client(cli, "[SERVER] Failed to find your party.\n");
+        return 1;
+    }
+
+    if (strcmp(command, "invite") == 0 && cli->is_admin)
+    {
+        if (strlen(cli->party_code) == 0)
+        {
+            send_to_client(cli, "[SERVER] You're not in a party.\n");
+            return 1;
+        }
+
+        client_t *target = NULL;
+        for (int i = 0; i < MAX_CLIENTS; ++i)
+        {
+            if (clients[i] && strcmp(clients[i]->username, arg1) == 0)
+            {
+                target = clients[i];
+                break;
+            }
+        }
+
+        if (!target)
+        {
+            send_to_client(cli, "[SERVER] User '%s' not found.\n", arg1);
+            return 1;
+        }
+
+        strncpy(target->invited_party, cli->party_code, PARTY_CODE_LEN);
+        send_to_client(target, "[SERVER] You have been invited to party '%s' by %s.\n", cli->party_code, cli->username);
+        send_to_client(cli, "[SERVER] Invitation sent to %s.\n", target->username);
+        return 1;
+    }
+
+    if (strcmp(command, "partyinfo") == 0 && cli->is_admin)
+    {
+        if (strlen(arg1) == 0)
+        {
+            send_to_client(cli, "[SERVER] Usage: /partyinfo <code>\n");
+            return 1;
+        }
+
+        int found = 0;
+        send_to_client(cli, "\033[1mMembers in party '%s':\033[0m\n", arg1);
+        for (int i = 0; i < MAX_CLIENTS; ++i)
+        {
+            if (clients[i] && strcmp(clients[i]->party_code, arg1) == 0)
+            {
+                send_to_client(cli, " - %s%s\n", clients[i]->username,
+                               clients[i]->is_admin ? " (admin)" : "");
+                found = 1;
+            }
+        }
+
+        if (!found)
+        {
+            send_to_client(cli, "[SERVER] No members found in party '%s'.\n", arg1);
+        }
+
         return 1;
     }
 
@@ -163,6 +244,61 @@ int handle_command(const char *cmdline, client_t *cli)
         return 1;
     }
 
+#define COLOR_RESET "\033[0m"
+
+    if (strcmp(command, "setcolor") == 0)
+    {
+        if (strlen(arg1) == 0)
+        {
+            send_to_client(cli, "[USAGE] /setcolor <color>\n");
+            return 1;
+        }
+
+        const char *color_code = NULL;
+
+        if (strcasecmp(arg1, "red") == 0)
+            color_code = "\033[0;31m";
+        else if (strcasecmp(arg1, "green") == 0)
+            color_code = "\033[0;32m";
+        else if (strcasecmp(arg1, "yellow") == 0)
+            color_code = "\033[0;33m";
+        else if (strcasecmp(arg1, "blue") == 0)
+            color_code = "\033[0;34m";
+        else if (strcasecmp(arg1, "magenta") == 0)
+            color_code = "\033[0;35m";
+        else if (strcasecmp(arg1, "cyan") == 0)
+            color_code = "\033[0;36m";
+        else if (strcasecmp(arg1, "white") == 0)
+            color_code = "\033[0;37m";
+        else
+        {
+            send_to_client(cli, "[ERROR] Unsupported color.\nUse /colorlist to view available options.\n");
+            return 1;
+        }
+
+        strncpy(cli->color, color_code, sizeof(cli->color));
+        cli->color[sizeof(cli->color) - 1] = '\0';
+
+        char msg[BUFFER_SIZE];
+        snprintf(msg, sizeof(msg), "[SERVER] Username color set to %s%s%s\n", cli->color, arg1, COLOR_RESET);
+        send_to_client(cli, msg);
+        return 1;
+    }
+
+    if (strcmp(command, "colorlist") == 0)
+    {
+        send_to_client(cli,
+                       "[SERVER] Available colors:\n"
+                       "\033[0;31mred\033[0m, "
+                       "\033[0;32mgreen\033[0m, "
+                       "\033[0;33myellow\033[0m, "
+                       "\033[0;34mblue\033[0m, "
+                       "\033[0;35mmagenta\033[0m, "
+                       "\033[0;36mcyan\033[0m, "
+                       "\033[0;37mwhite\033[0m\n");
+        return 1;
+    }
+
     if (strcmp(command, "lastseen") == 0)
     {
         if (strlen(arg1) == 0)
@@ -239,6 +375,19 @@ int handle_command(const char *cmdline, client_t *cli)
 
         if (party_exists(arg1))
         {
+
+            for (int i = 0; i < party_count; ++i)
+            {
+                if (strcmp(party_list[i].code, arg1) == 0)
+                {
+                    if (party_list[i].is_locked && strcmp(cli->invited_party, arg1) != 0)
+                    {
+                        send_to_client(cli, "[SERVER] Party '%s' is locked. You need an invite.\n", arg1);
+                        return 1;
+                    }
+                }
+            }
+
             strncpy(cli->party_code, arg1, PARTY_CODE_LEN);
             log_event("Party join: %s -> [%s]", cli->username, arg1);
             send_to_client(cli, "\033[1;34m[SERVER] Joined party '%s'\033[0m\n", arg1);
@@ -254,6 +403,10 @@ int handle_command(const char *cmdline, client_t *cli)
     {
         send_to_client(cli, "You are in party: \033[1;36m%s\033[0m\n",
                        strlen(cli->party_code) ? cli->party_code : "public");
+        strncpy(party_list[party_count].code, arg1, PARTY_CODE_LEN);
+        party_list[party_count].code[PARTY_CODE_LEN - 1] = '\0';
+        party_list[party_count].is_locked = 0;
+        party_count++;
         return 1;
     }
 
@@ -321,6 +474,12 @@ int handle_command(const char *cmdline, client_t *cli)
             return unban_user(arg1, cli);
         if (strcmp(command, "banlist") == 0)
             return list_banned(cli), 1;
+        if (strcmp(command, "parties") == 0)
+        {
+            list_active_parties(cli);
+            return 1;
+        }
+
         if (strcmp(command, "mute") == 0)
             return mute_user(arg1, cli);
         if (strcmp(command, "unmute") == 0)
