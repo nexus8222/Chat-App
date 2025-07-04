@@ -150,6 +150,10 @@ void *handle_client(void *arg)
             char msg[2048];
             snprintf(msg, sizeof(msg), "\033[1m[%s]:\033[0m %s\n", cli->username, buffer);
             broadcast_message(msg, cli);
+            strncpy(cli->last_msg, buffer, BUFFER_SIZE);
+            cli->last_msg_time = time(NULL);
+;
+
         }
     }
 

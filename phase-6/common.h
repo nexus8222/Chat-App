@@ -22,6 +22,9 @@ typedef struct client {
     struct sockaddr_in address;  // used by inet_ntop etc.
     time_t join_time;
     time_t last_seen;
+    char last_msg[BUFFER_SIZE];
+    time_t last_msg_time;
+    int last_msg_id;
     
     struct client *next;
 } client_t;
