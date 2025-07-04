@@ -19,6 +19,7 @@
 #include "party.h"
 
 #define PORT 9001
+char pinned_message[BUFFER_SIZE] = "";
 
 client_t *clients[MAX_CLIENTS];
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -122,6 +123,14 @@ void *handle_client(void *arg)
     send_to_client(cli, "\033[1;36mWelcome! Type /help for commands.\033[0m\n");
     send_to_client(cli, "\033[1;34m--- Message of the Day ---\033[0m\n");
     handle_command("/motd", cli);
+    if (strlen(pinned_message) > 0) {
+    send_to_client(cli,
+        "\n\033[1;33m=== PINNED MESSAGE ===\033[0m\n"
+        "%s\n"
+        "\033[1;33m======================\033[0m\n",
+        pinned_message);
+}
+
 
     while (1)
     {

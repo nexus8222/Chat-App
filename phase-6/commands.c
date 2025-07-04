@@ -20,6 +20,7 @@
 extern client_t *clients[MAX_CLIENTS];
 extern time_t server_start_time;
 extern lastseen_t lastseen_list[MAX_CLIENTS];
+extern char pinned_message[BUFFER_SIZE];
 
 void broadcast_system(const char *msg)
 {
@@ -56,7 +57,6 @@ int handle_command(const char *cmdline, client_t *cli)
                        cli->is_admin ? "/kick <user>\n/ban <user>\n/unban <user>\n/banlist\n"
                                        "/mute <user>\n/unmute <user>\n/mutelist\n"
                                        "/broadcast <msg>\n/log\n/shutdown\n/setmotd <msg>\n"
-                                      
 
                                      : "");
         return 1;
@@ -299,6 +299,22 @@ int handle_command(const char *cmdline, client_t *cli)
     {
         if (strcmp(command, "kick") == 0)
             return kick_user(arg1, cli);
+        if (strcmp(command, "pin") == 0)
+        {
+            char fullmsg[BUFFER_SIZE];
+            snprintf(fullmsg, sizeof(fullmsg), "%s %s", arg1, arg2);
+
+            if (strlen(fullmsg) == 0)
+            {
+                send_to_client(cli, "[SERVER] Usage: /pin <message>\n");
+                return 1;
+            }
+
+            strncpy(pinned_message, fullmsg, BUFFER_SIZE);
+            broadcast_system("A new message has been pinned.");
+            return 1;
+        }
+
         if (strcmp(command, "ban") == 0)
             return ban_user(arg1, cli);
         if (strcmp(command, "unban") == 0)
