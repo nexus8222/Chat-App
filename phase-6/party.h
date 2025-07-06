@@ -1,9 +1,11 @@
 #ifndef PARTY_H
 #define PARTY_H
+
+#include "client.h"
+
 #define MAX_PARTIES 100
-int party_exists(const char *code);
-int create_party(const char *code);
-void list_active_parties(client_t *cli);
+
+
 typedef struct {
     char code[PARTY_CODE_LEN];
     int is_locked;
@@ -11,7 +13,9 @@ typedef struct {
     int invite_count;
 } party_info_t;
 
-extern party_info_t party_list[MAX_PARTIES];
+int party_exists(const char *code);
+int create_party(const char *code);
+void list_active_parties(client_t *cli);
 
 extern party_info_t party_list[MAX_PARTIES];
 extern int party_count;

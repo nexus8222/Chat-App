@@ -401,49 +401,119 @@ int handle_command(const char *cmdline, client_t *cli)
 
     if (strcmp(command, "party") == 0)
     {
-        send_to_client(cli, "You are in party: \033[1;36m%s\033[0m\n",
-                       strlen(cli->party_code) ? cli->party_code : "public");
-        strncpy(party_list[party_count].code, arg1, PARTY_CODE_LEN);
-        party_list[party_count].code[PARTY_CODE_LEN - 1] = '\0';
-        party_list[party_count].is_locked = 0;
-        party_count++;
+        if (strlen(cli->party_code) > 0)
+        {
+            send_to_client(cli, "[SERVER] You are in party: %s\n", cli->party_code);
+        }
+        else
+        {
+            send_to_client(cli, "[SERVER] You are not in a party.\n");
+        }
+        return 1;
+    }
+
+    if (strcmp(command, "lockparty") == 0 && cli->is_admin)
+    {
+        if (strlen(cli->party_code) == 0)
+        {
+            send_to_client(cli, "[SERVER] You are not in a party.\n");
+            return 1;
+        }
+
+        int found = 0;
+        for (int i = 0; i < party_count; i++)
+        {
+            if (strcmp(party_list[i].code, cli->party_code) == 0)
+            {
+                party_list[i].is_locked = 1;
+                found = 1;
+                char msg[BUFFER_SIZE];
+                snprintf(msg, sizeof(msg), "[SERVER] Party '%s' is now locked.\n", cli->party_code);
+                send_to_client(cli, msg);
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            send_to_client(cli, "[SERVER] Failed to find your party.\n");
+        }
+
+        return 1;
+    }
+
+    if (strcmp(command, "unlockparty") == 0 && cli->is_admin)
+    {
+        if (strlen(cli->party_code) == 0)
+        {
+            send_to_client(cli, "[SERVER] You are not in a party.\n");
+            return 1;
+        }
+
+        int found = 0;
+        for (int i = 0; i < party_count; ++i)
+        {
+            if (strcmp(party_list[i].code, cli->party_code) == 0)
+            {
+                party_list[i].is_locked = 0;
+                found = 1;
+                send_to_client(cli, "[SERVER] Party '%s' is now unlocked.\n", cli->party_code);
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            send_to_client(cli, "[SERVER] Failed to find your party.\n");
+        }
+
         return 1;
     }
 
     if (strcmp(command, "leaveparty") == 0)
     {
-        cli->party_code[0] = '\0';
-        log_event("Party leave: %s left their party", cli->username);
-        send_to_client(cli, "[SERVER] You left your party and joined public chat.\n");
-        return 1;
-    }
-
-    if (strcmp(command, "msg") == 0)
-    {
-        if (strlen(arg1) == 0 || strlen(arg2) == 0)
+        if (strlen(cli->party_code) == 0)
         {
-            send_to_client(cli, "[SERVER] Usage: /msg <username> <message>\n");
+            send_to_client(cli, "[SERVER] You are not in a party.\n");
             return 1;
         }
 
-        client_t *target = NULL;
+        char left_party[PARTY_CODE_LEN];
+        strncpy(left_party, cli->party_code, PARTY_CODE_LEN);
+        left_party[PARTY_CODE_LEN - 1] = '\0';
+
+        cli->party_code[0] = '\0';
+        cli->invited_party[0] = '\0';
+
+        send_to_client(cli, "[SERVER] You have left party '%s'.\n", left_party);
+
+        int still_has_members = 0;
         for (int i = 0; i < MAX_CLIENTS; ++i)
         {
-            if (clients[i] && strcmp(clients[i]->username, arg1) == 0)
+            if (clients[i] && strcmp(clients[i]->party_code, left_party) == 0)
             {
-                target = clients[i];
+                still_has_members = 1;
                 break;
             }
         }
 
-        if (!target)
+        if (!still_has_members)
         {
-            send_to_client(cli, "[SERVER] User '%s' not found or offline.\n", arg1);
-            return 1;
+            for (int i = 0; i < party_count; ++i)
+            {
+                if (strcmp(party_list[i].code, left_party) == 0)
+                {
+
+                    for (int j = i; j < party_count - 1; ++j)
+                    {
+                        party_list[j] = party_list[j + 1];
+                    }
+                    party_count--;
+                    break;
+                }
+            }
         }
 
-        send_to_client(target, "\033[1;35m[PM from %s]:\033[0m %s\n", cli->username, arg2);
-        send_to_client(cli, "\033[1;36m[PM to %s]:\033[0m %s\n", target->username, arg2);
         return 1;
     }
 
