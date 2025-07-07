@@ -60,6 +60,17 @@ void add_client(client_t *cl)
     }
     pthread_mutex_unlock(&clients_mutex);
 }
+client_t *get_client_by_name(const char *name)
+{
+    for (int i = 0; i < MAX_CLIENTS; ++i)
+    {
+        if (clients[i] && strcmp(clients[i]->username, name) == 0)
+        {
+            return clients[i];
+        }
+    }
+    return NULL;
+}
 
 void remove_client(int sockfd)
 {
@@ -104,6 +115,35 @@ void *handle_client(void *arg)
             pthread_exit(NULL);
         }
     }
+    if (strncmp(buffer, "__PRIVATE__:", 12) == 0)
+    {
+        char *target = strtok(buffer + 12, ":");
+        char *msg = strtok(NULL, "");
+
+        if (!target || !msg)
+            return NULL;
+
+        client_t *receiver = get_client_by_name(target);
+        if (receiver)
+        {
+            char outbuf[BUFFER_SIZE];
+
+            snprintf(outbuf, sizeof(outbuf), "[PM from %s]: %s", cli->username, msg);
+            send(receiver->sockfd, outbuf, strlen(outbuf), 0);
+
+            // Optional: echo back to sender for confirmation
+            snprintf(outbuf, sizeof(outbuf), "[PM to %s]: %s", target, msg);
+            send(cli->sockfd, outbuf, strlen(outbuf), 0);
+        }
+        else
+        {
+            char failmsg[128];
+            snprintf(failmsg, sizeof(failmsg), "[SYSTEM] User '%s' not found.", target);
+            send(cli->sockfd, failmsg, strlen(failmsg), 0);
+        }
+        return NULL;
+    }
+
     if (strcmp(cli->username, "admin") == 0)
     {
         cli->is_admin = 1;
@@ -125,14 +165,14 @@ void *handle_client(void *arg)
     send_to_client(cli, "\033[1;36mWelcome! Type /help for commands.\033[0m\n");
     send_to_client(cli, "\033[1;34m--- Message of the Day ---\033[0m\n");
     handle_command("/motd", cli);
-    if (strlen(pinned_message) > 0) {
-    send_to_client(cli,
-        "\n\033[1;33m=== PINNED MESSAGE ===\033[0m\n"
-        "%s\n"
-        "\033[1;33m======================\033[0m\n",
-        pinned_message);
-}
-
+    if (strlen(pinned_message) > 0)
+    {
+        send_to_client(cli,
+                       "\n\033[1;33m=== PINNED MESSAGE ===\033[0m\n"
+                       "%s\n"
+                       "\033[1;33m======================\033[0m\n",
+                       pinned_message);
+    }
 
     while (1)
     {
@@ -160,15 +200,14 @@ void *handle_client(void *arg)
         {
             char msg[2048];
             snprintf(msg, sizeof(msg), "%s[%s]:%s %s\n",
-             cli->color,
-             cli->username,
-             COLOR_RESET,
-             buffer);
+                     cli->color,
+                     cli->username,
+                     COLOR_RESET,
+                     buffer);
             broadcast_message(msg, cli);
             strncpy(cli->last_msg, buffer, BUFFER_SIZE);
             cli->last_msg_time = time(NULL);
-;
-
+            ;
         }
     }
 

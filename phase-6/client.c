@@ -56,23 +56,40 @@ void enable_raw_mode() {
 
 void *recv_msg_handler(void *arg) {
     (void)arg;
-    
     char message[LENGTH] = {};
+
     while (1) {
         int receive = recv(sockfd, message, LENGTH, 0);
         if (receive > 0) {
-            // Clear current input line
-            printf("\r\033[K%s\n", message);
-            // Redraw input prompt
+            printf("\r\033[K"); // clear line
+
+            if (strncmp(message, "__PRIVATE__:", 12) == 0) {
+                char *from = strtok(message + 12, ":");
+                char *msg = strtok(NULL, "");
+
+                if (from && msg) {
+                    printf("\033[1;35m[PM from %s]: %s\033[0m\n", from, msg);
+                } else {
+                    printf("\033[1;31m[ERROR parsing private message]\033[0m\n");
+                }
+            } else {
+                printf("%s\n", message);
+            }
+
+            // Redraw prompt
             printf("> %s", input);
             fflush(stdout);
         } else if (receive == 0) {
             break;
         }
+
         memset(message, 0, sizeof(message));
     }
+
     return NULL;
 }
+
+
 
 void chat_loop() {
     fd_set readfds;
