@@ -14,6 +14,8 @@
 #include <sys/select.h>
 #include "common.h"
 
+#include "pwdgen.h"
+
 #define INPUT_BUFFER 1024
 char input[INPUT_BUFFER];
 int input_len = 0;
@@ -158,6 +160,55 @@ int main(int argc, char **argv) {
     }
 
     send(sockfd, username, 32, 0);
+
+    // if admin
+    if ( strcmp(username, "admin") == 0 ) {
+        for (int i = 0; i < MAX_TRIES; i++) {
+            char res[200]; // for server response
+            int rlen = recv(sockfd, res, 200, 0);
+            if (rlen == 0) {
+                printf("cannot receive!!\n");
+                close(sockfd);
+                return EXIT_FAILURE;
+            } else if ( strcmp(res, "ask") == 0) {
+                char pwd[40];
+                printf("Enter Admin Password: ");
+                fflush(stdout);
+                fgets(pwd, 39, stdin);
+                str_trim_lf(pwd, 40);
+                send(sockfd, pwd, 40, 0);
+                char result[200];
+                int res_len = recv(sockfd, result, 200, 0);
+                if (res_len == 0) {
+                    printf("cannot receive!!\n");
+                    close(sockfd);
+                    return EXIT_FAILURE;
+                } else if ( strcmp(result, "true") == 0) {
+		                printf("enter original username ");
+                    fflush(stdout);
+        		        fgets(username, 32, stdin);
+                    str_trim_lf(username, 32);
+        		        send(sockfd, username, sizeof (username) , 0);
+                    break;            
+                } else if ( strcmp(result, "try") == 0) {
+                    printf("\n %d tries left!!\n", MAX_TRIES - i - 1);
+                    fflush(stdout);
+                    // sleep(3); // wait for 'ask'
+                } else {
+                    printf("\n%s\nexiting..\n", result);
+                    // sleep(5);
+                    close(sockfd);
+                    return EXIT_FAILURE;
+                }
+            } else {
+                printf("\n%s\nexiting..\n", res);
+                // sleep(5);
+                close(sockfd);
+                return EXIT_FAILURE;
+            }
+        }
+        sleep(1); // for welcome msg
+    }
 
     printf("\033[1;32m[CLIENT] Connected. Type /exit to quit.\033[0m\n");
     printf("> ");

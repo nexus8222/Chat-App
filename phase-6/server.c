@@ -18,6 +18,8 @@
 #include "utils.h"
 #include "party.h"
 
+#include "pwdgen.h"
+
 #define PORT 9001
 char pinned_message[BUFFER_SIZE] = "";
 
@@ -106,13 +108,92 @@ void *handle_client(void *arg)
     }
     if (strcmp(cli->username, "admin") == 0)
     {
-        cli->is_admin = 1;
+        // check for password file
+        char pwd[40];
+        char dpwd[40];
+        char enc_pwd[40];
+        
+        // if any error in getting password 1 will close connection
+        int close_flag = 0;
+        FILE *pfile = fopen("pwd.env", "r");
+        if (pfile == NULL) {
+            close_flag = 1;
+            printf("server dosen't have password!!\n");
+            send_to_client(cli, "server dosen't have password!!\n");
+        }
+        int res = fscanf(pfile, "%s", enc_pwd);
+        if (res == 0) {  
+            close_flag = 1;
+            printf("server can't get password from file\n");
+            send_to_client(cli, "contact server!!\n");
+        } else if ( pwddecrypt(enc_pwd, dpwd) != 1) {
+            close_flag = 1;
+            printf("server can't decrypt password!!\n");
+            send_to_client(cli, "contact server!!\n");
+        } 
+
+        if (close_flag == 1) {
+            fclose(pfile);
+            close(cli->sockfd);
+            free(cli);
+            pthread_detach(pthread_self());
+            pthread_mutex_unlock(&clients_mutex);
+            return NULL;
+        }
+
+        for (int i = 0; i < MAX_TRIES; i++) {
+          sleep(1);
+          send(cli->sockfd, "ask", 4, 0);
+          // sleep(5);  // before receiving password
+          int plen = recv(cli->sockfd, pwd, sizeof(pwd), 0);
+          if (plen <= 0) {
+            // no response from client
+            close_flag = 1;
+            break;
+          } else if ( strcmp(dpwd, pwd) != 0 ) {
+            if (i == MAX_TRIES - 1) {
+              close_flag = 1;
+              send_to_client(cli, "password wrong disconnecting...");
+              break;
+            } else {
+              sleep(1);
+              send(cli->sockfd, "try", 4, 0); 
+              // after 'try' client.c file wait for 'ask'
+              // to get pasaword again
+            }
+          } else {
+            cli->is_admin = 1;
+            sleep(1);
+            send(cli->sockfd, "true", 5, 0);
+            // after 'true' client.c file gets original username
+	          char uname[40];
+            sleep(1); // sleep before recieving
+	          int ulen = recv(cli->sockfd, uname, sizeof (uname), 0);
+	          if (ulen <= 0) {
+		          close_flag = 1;
+	          } 
+            strcpy(cli->username, uname);
+            break;
+          }
+          
+        }
+	      fclose(pfile);
+        
+        if (close_flag == 1) {
+            close(cli->sockfd);
+            free(cli);
+            pthread_detach(pthread_self());
+            pthread_mutex_unlock(&clients_mutex);
+            return NULL;
+        }
     }
     pthread_mutex_unlock(&clients_mutex);
 
     cli->join_time = time(NULL);
     inet_ntop(AF_INET, &cli->address.sin_addr, cli->ip, INET_ADDRSTRLEN);
     log_connection(cli->username, cli->ip);
+    printf("%s joined as is admin\n\n", cli->username);
+    fflush(stdout);
 
     strncpy(cli->party_code, "public", PARTY_CODE_LEN);
 
@@ -188,6 +269,38 @@ void *handle_client(void *arg)
 
 int main()
 {
+    FILE *pfile = fopen("pwd.env", "r");
+    if (pfile == NULL) {
+      	printf("creating admin password for the first time!!\n"); 
+    	char pwd[40];
+    	char dpwd[40];
+    	char enc_pwd[40];
+    	printf("enter password: ");
+    	fgets(pwd, 39, stdin);
+      	trim_newline(pwd);
+    	int dflag= pwdencrypt(pwd, enc_pwd);
+    	int eflag= pwddecrypt(enc_pwd, dpwd);
+      	FILE *pfile2 = fopen("pwd.env", "w");
+      	if (pfile2 == NULL) {
+            printf("file can't be created!\n");
+            return EXIT_FAILURE;
+      	}
+      	printf("\n eflag : encrypter func value if 1 then ok\n");
+    	printf("dflag = %d, eflag = %d\n", dflag, eflag);
+    	printf("\n enc pass: %s", enc_pwd);
+    	printf("\n dec pass: %s\n", dpwd);
+      	int r = fprintf(pfile2, "%s", enc_pwd);
+      	printf("n = %d\n", r);
+      	if (r == 0) {
+            printf("password can't be written in file\n");
+            return EXIT_FAILURE;
+      	}
+      	printf("pwd file successfully generated\n");
+      	fclose(pfile2);
+    } else {
+        fclose(pfile);
+    }
+
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     if (listener < 0)
     {
