@@ -1,6 +1,6 @@
-// client.c 
-//have included with emoji support inbuild input bar> and more features!
-//too more to be added 
+// client.c
+// have included with emoji support inbuild input bar> and more features!
+// too more to be added
 //@mistabazz is going to add security in admin login
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,7 +13,7 @@
 #include <termios.h>
 #include <sys/select.h>
 #include "common.h"
-
+#include <time.h>
 #define INPUT_BUFFER 1024
 char input[INPUT_BUFFER];
 int input_len = 0;
@@ -24,28 +24,44 @@ struct termios orig_termios;
 volatile sig_atomic_t flag = 0;
 int sockfd = 0;
 char username[32];
+#define MAX_LOCAL_VANISH 100
 
-void str_trim_lf(char *arr, int length) {
-    for (int i = 0; i < length; i++) {
-        if (arr[i] == '\n') {
+typedef struct
+{
+    int id;
+    int duration;
+    char content[1024];
+} vanish_display_t;
+
+vanish_display_t vanish_messages[100];
+int vanish_index = 0;
+
+void str_trim_lf(char *arr, int length)
+{
+    for (int i = 0; i < length; i++)
+    {
+        if (arr[i] == '\n')
+        {
             arr[i] = '\0';
             break;
         }
     }
 }
 
-void catch_ctrl_c_and_exit(int sig) {
+void catch_ctrl_c_and_exit(int sig)
+{
     (void)sig;
     flag = 1;
     write(STDOUT_FILENO, "\n\033[1;33m[CLIENT] Ctrl+C pressed, exiting...\033[0m\n", 47);
 }
 
-
-void disable_raw_mode() {
+void disable_raw_mode()
+{
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
 
-void enable_raw_mode() {
+void enable_raw_mode()
+{
     tcgetattr(STDIN_FILENO, &orig_termios);
     atexit(disable_raw_mode);
 
@@ -54,32 +70,81 @@ void enable_raw_mode() {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
-void *recv_msg_handler(void *arg) {
+void *recv_msg_handler(void *arg)
+{
     (void)arg;
     char message[LENGTH] = {};
 
-    while (1) {
+    while (1)
+    {
         int receive = recv(sockfd, message, LENGTH, 0);
-        if (receive > 0) {
-            printf("\r\033[K"); // clear line
+        if (receive > 0)
+        {
+            printf("\r\033[K"); // Clear line before any new message
 
-            if (strncmp(message, "__PRIVATE__:", 12) == 0) {
+            if (strncmp(message, "__PRIVATE__:", 12) == 0)
+            {
                 char *from = strtok(message + 12, ":");
                 char *msg = strtok(NULL, "");
-
-                if (from && msg) {
+                if (from && msg)
                     printf("\033[1;35m[PM from %s]: %s\033[0m\n", from, msg);
-                } else {
+                else
                     printf("\033[1;31m[ERROR parsing private message]\033[0m\n");
+            }
+            else if (strncmp(message, "__VANISH__:", 11) == 0)
+            {
+                int id, duration;
+                char sender[32], msg[1024];
+                if (sscanf(message, "__VANISH__:%d:%d:%31[^:]: %[^\n]", &id, &duration, sender, msg) == 4)
+                {
+                    // Clip msg to avoid snprintf overflow
+                    char short_msg[512];
+                    strncpy(short_msg, msg, sizeof(short_msg) - 1);
+                    short_msg[sizeof(short_msg) - 1] = '\0';
+
+                    printf("\033[1;33m[VANISH] %s: %s\033[0m (expires in %d sec)\n", sender, short_msg, duration);
+
+                    // Store line for erasure
+                    if (vanish_index < 100)
+                    {
+                        vanish_messages[vanish_index].id = id;
+                        vanish_messages[vanish_index].duration = duration;
+                        snprintf(vanish_messages[vanish_index].content, sizeof(vanish_messages[vanish_index].content),
+                                 "\033[1;33m[VANISH] %s: %s\033[0m (expires in %d sec)\n", sender, short_msg, duration);
+                        vanish_index++;
+                    }
                 }
-            } else {
+            }
+
+            else if (strncmp(message, "__DELETE__:", 11) == 0)
+            {
+                int id;
+                if (sscanf(message, "__DELETE__:%d", &id) == 1)
+                {
+                    for (int i = 0; i < vanish_index; i++)
+                    {
+                        if (vanish_messages[i].id == id)
+                        {
+                            // Move cursor up, clear line, move down again
+                            printf("\033[F\033[2K\r"); // Go up, clear line
+                            fflush(stdout);
+                            printf("\033[1;31m[DISAPPEAR] Message ID %d has vanished.\033[0m\n", id);
+                            break;
+                        }
+                    }
+                }
+            }
+            else
+            {
                 printf("%s\n", message);
             }
 
-            // Redraw prompt
+            // Redraw input prompt
             printf("> %s", input);
             fflush(stdout);
-        } else if (receive == 0) {
+        }
+        else if (receive == 0)
+        {
             break;
         }
 
@@ -89,14 +154,15 @@ void *recv_msg_handler(void *arg) {
     return NULL;
 }
 
-
-
-void chat_loop() {
+void chat_loop()
+{
     fd_set readfds;
     unsigned char ch;
 
-    while (1) {
-        if (flag) break;
+    while (1)
+    {
+        if (flag)
+            break;
 
         FD_ZERO(&readfds);
         FD_SET(STDIN_FILENO, &readfds);
@@ -105,29 +171,39 @@ void chat_loop() {
 
         select(maxfd + 1, &readfds, NULL, NULL, NULL);
 
-        if (FD_ISSET(STDIN_FILENO, &readfds)) {
-            if (read(STDIN_FILENO, &ch, 1) <= 0) continue;
+        if (FD_ISSET(STDIN_FILENO, &readfds))
+        {
+            if (read(STDIN_FILENO, &ch, 1) <= 0)
+                continue;
 
-            if (ch == 127 || ch == 8) {  // Backspace
-                if (input_len > 0) {
+            if (ch == 127 || ch == 8)
+            { // Backspace
+                if (input_len > 0)
+                {
                     input[--input_len] = '\0';
                     printf("\r\033[K> %s", input);
                     fflush(stdout);
                 }
-            } else if (ch == '\n') {
+            }
+            else if (ch == '\n')
+            {
                 input[input_len] = '\0';
-                if (strcmp(input, "/exit") == 0) {
+                if (strcmp(input, "/exit") == 0)
+                {
                     flag = 1;
                     break;
                 }
-                if (input_len > 0) {
+                if (input_len > 0)
+                {
                     send(sockfd, input, strlen(input), 0);
                 }
                 input_len = 0;
                 input[0] = '\0';
                 printf("\r\033[K> ");
                 fflush(stdout);
-            } else if (input_len < INPUT_BUFFER - 4) {
+            }
+            else if (input_len < INPUT_BUFFER - 4)
+            {
                 input[input_len++] = ch;
                 input[input_len] = '\0';
                 printf("\r\033[K> %s", input);
@@ -137,8 +213,10 @@ void chat_loop() {
     }
 }
 
-int main(int argc, char **argv) {
-    if (argc != 2) {
+int main(int argc, char **argv)
+{
+    if (argc != 2)
+    {
         printf("Usage: %s <server_ip>\n", argv[0]);
         return EXIT_FAILURE;
     }
@@ -152,7 +230,8 @@ int main(int argc, char **argv) {
     fgets(username, 32, stdin);
     str_trim_lf(username, 32);
 
-    if (strlen(username) < 2 || strlen(username) >= 32) {
+    if (strlen(username) < 2 || strlen(username) >= 32)
+    {
         printf("Username must be between 2 and 31 characters.\n");
         return EXIT_FAILURE;
     }
@@ -160,7 +239,8 @@ int main(int argc, char **argv) {
     struct sockaddr_in server_addr;
 
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
+    if (sockfd < 0)
+    {
         perror("Socket error");
         return EXIT_FAILURE;
     }
@@ -169,7 +249,8 @@ int main(int argc, char **argv) {
     server_addr.sin_port = htons(port);
     inet_pton(AF_INET, ip, &server_addr.sin_addr);
 
-    if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+    if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
         perror("Connect error");
         return EXIT_FAILURE;
     }

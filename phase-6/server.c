@@ -9,6 +9,7 @@
 #include <time.h>
 #include "common.h"
 #include "lastseen.h"
+#include "vanish.h"
 
 #include "client.h"
 #include "commands.h"
@@ -24,6 +25,16 @@ char pinned_message[BUFFER_SIZE] = "";
 client_t *clients[MAX_CLIENTS];
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 time_t server_start_time;
+void *vanish_cleaner_thread(void *arg)
+{
+    (void)arg; 
+    while (1)
+    {
+        check_and_expire_vanish_messages();
+        sleep(1);
+    }
+    return NULL;
+}
 
 void trim_newline(char *s)
 {
@@ -259,6 +270,9 @@ int main()
     log_server_start(PORT);
     load_banlist();
     server_start_time = time(NULL);
+    init_vanish_module();
+    pthread_t vanish_thread;
+    pthread_create(&vanish_thread, NULL, vanish_cleaner_thread, NULL);
 
     while (1)
     {

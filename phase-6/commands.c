@@ -21,7 +21,7 @@ extern client_t *clients[MAX_CLIENTS];
 extern time_t server_start_time;
 extern lastseen_t lastseen_list[MAX_CLIENTS];
 extern char pinned_message[BUFFER_SIZE];
-
+#include "vanish.h"
 void broadcast_system(const char *msg)
 {
     char sysmsg[BUFFER_SIZE];
@@ -53,6 +53,7 @@ int handle_command(const char *cmdline, client_t *cli)
                        "/msg <user> <message>\n"
                        "/editlast <msg>\n"
                        "/deletelast \n/setcolor <color>\n/colorlist\n"
+                       "/vanish <seconds> <message>\n"
                        "%s\n",
                        cli->is_admin ? "/kick <user>\n/ban <user>\n/unban <user>\n/banlist\n"
                                        "/mute <user>\n/unmute <user>\n/mutelist\n"
@@ -172,6 +173,14 @@ int handle_command(const char *cmdline, client_t *cli)
             send_to_client(cli, "[SERVER] No members found in party '%s'.\n", arg1);
         }
 
+        return 1;
+    }
+
+    if (strcmp(command, "vanish") == 0)
+    {
+        char vanish_args[BUFFER_SIZE];
+        snprintf(vanish_args, sizeof(vanish_args), "%s %s", arg1, arg2);
+        handle_vanish_command(cli, vanish_args);
         return 1;
     }
 
