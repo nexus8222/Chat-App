@@ -12,6 +12,10 @@
 #define BUFFER_SIZE 2048
 #define MAX_CLIENTS 100
 #define COLOR_RESET "\033[0m"
+
+#define MSG_LEN 1024
+
+
 typedef struct client {
     int sockfd;
     char username[USERNAME_LEN];

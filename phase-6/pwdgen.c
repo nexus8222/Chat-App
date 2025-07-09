@@ -89,4 +89,3 @@ int pwddecrypt(char *enc_pwd, char *pwd) {
 	*(pwd + len) = '\0';
 	return flag;
 }
-

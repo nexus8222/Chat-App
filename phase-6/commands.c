@@ -21,7 +21,7 @@ extern client_t *clients[MAX_CLIENTS];
 extern time_t server_start_time;
 extern lastseen_t lastseen_list[MAX_CLIENTS];
 extern char pinned_message[BUFFER_SIZE];
-
+#include "vanish.h"
 void broadcast_system(const char *msg)
 {
     char sysmsg[BUFFER_SIZE];
@@ -53,10 +53,11 @@ int handle_command(const char *cmdline, client_t *cli)
                        "/msg <user> <message>\n"
                        "/editlast <msg>\n"
                        "/deletelast \n/setcolor <color>\n/colorlist\n"
+                       "/vanish <seconds> <message>\n"
                        "%s\n",
                        cli->is_admin ? "/kick <user>\n/ban <user>\n/unban <user>\n/banlist\n"
                                        "/mute <user>\n/unmute <user>\n/mutelist\n"
-                                       "/broadcast <msg>\n/log\n/shutdown\n/setmotd <msg>\n/parties\n"
+                                       "/broadcast <msg>\n/log\n/shutdown\n/pin <msg>\n/setmotd <msg>\n/parties\n"
                                        "/lockparty\n/invite <user>\n/partyinfo <code>\n "
 
                                      : "");
@@ -82,6 +83,38 @@ int handle_command(const char *cmdline, client_t *cli)
         }
 
         send_to_client(cli, "[SERVER] Failed to find your party.\n");
+        return 1;
+    }
+
+    if (strcmp(command, "msg") == 0)
+    {
+        if (strlen(arg1) == 0 || strlen(arg2) == 0)
+        {
+            send_to_client(cli, "[SYSTEM] Usage: /msg <username> <message>\n");
+            return 1;
+        }
+
+        client_t *target = NULL;
+        for (int i = 0; i < MAX_CLIENTS; ++i)
+            if (clients[i] && strcmp(clients[i]->username, arg1) == 0)
+                target = clients[i];
+
+        if (!target)
+        {
+            send_to_client(cli, "[SYSTEM] User '%s' not found.\n", arg1);
+            return 1;
+        }
+
+        // Relay PM to target
+        char outbuf[BUFFER_SIZE];
+        snprintf(outbuf, sizeof(outbuf), "__PRIVATE__:%s:%s", cli->username, arg2);
+        send(target->sockfd, outbuf, strlen(outbuf), 0);
+
+        // Optional: notify sender too
+        char confirm[BUFFER_SIZE];
+        snprintf(confirm, sizeof(confirm), "\033[1;35m[PM to %s]: %s\033[0m\n", target->username, arg2);
+        send(cli->sockfd, confirm, strlen(confirm), 0);
+
         return 1;
     }
 
@@ -140,6 +173,14 @@ int handle_command(const char *cmdline, client_t *cli)
             send_to_client(cli, "[SERVER] No members found in party '%s'.\n", arg1);
         }
 
+        return 1;
+    }
+
+    if (strcmp(command, "vanish") == 0)
+    {
+        char vanish_args[BUFFER_SIZE];
+        snprintf(vanish_args, sizeof(vanish_args), "%s %s", arg1, arg2);
+        handle_vanish_command(cli, vanish_args);
         return 1;
     }
 
