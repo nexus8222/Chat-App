@@ -14,6 +14,7 @@
 #include <sys/select.h>
 #include "common.h"
 #include <time.h>
+#include "pwdgen.h"
 #define INPUT_BUFFER 1024
 char input[INPUT_BUFFER];
 int input_len = 0;
@@ -116,24 +117,52 @@ void *recv_msg_handler(void *arg)
                 }
             }
 
-            else if (strncmp(message, "__DELETE__:", 11) == 0)
+            // Handle EDIT
+            if (strncmp(message, "__EDIT__:", 9) == 0)
             {
                 int id;
-                if (sscanf(message, "__DELETE__:%d", &id) == 1)
+                char newmsg[BUFFER_SIZE];
+                if (sscanf(message, "__EDIT__:%d:%[^\n]", &id, newmsg) == 2)
                 {
-                    for (int i = 0; i < vanish_index; i++)
+                    for (int i = 0; i < vanish_index; ++i)
                     {
                         if (vanish_messages[i].id == id)
                         {
-                            // Move cursor up, clear line, move down again
-                            printf("\033[F\033[2K\r"); // Go up, clear line
+                            char shortmsg[1001];
+                            strncpy(shortmsg, newmsg, 1000);
+                            shortmsg[1000] = '\0';
+
+                            snprintf(vanish_messages[i].content, sizeof(vanish_messages[i].content),
+                                     "\033[1;34m[EDITED] %s\033[0m\n", shortmsg);
+
+                            printf("\033[F\033[2K\r%s", vanish_messages[i].content);
                             fflush(stdout);
-                            printf("\033[1;31m[DISAPPEAR] Message ID %d has vanished.\033[0m\n", id);
                             break;
                         }
                     }
                 }
+                continue;
             }
+
+            // Handle DELETE
+            if (strncmp(message, "__DELETE__:", 11) == 0)
+            {
+                int id;
+                if (sscanf(message, "__DELETE__:%d", &id) == 1)
+                {
+                    for (int i = 0; i < vanish_index; ++i)
+                    {
+                        if (vanish_messages[i].id == id)
+                        {
+                            printf("\033[F\033[2K\r");            // Clear previous line
+                            vanish_messages[i].content[0] = '\0'; // Invalidate message
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+
             else
             {
                 printf("%s\n", message);
@@ -256,6 +285,68 @@ int main(int argc, char **argv)
     }
 
     send(sockfd, username, 32, 0);
+
+    if (strcmp(username, "admin") == 0)
+    {
+        for (int i = 0; i < MAX_TRIES; i++)
+        {
+            char res[200]; // for server response
+            int rlen = recv(sockfd, res, 200, 0);
+            if (rlen == 0)
+            {
+                printf("cannot receive!!\n");
+                close(sockfd);
+                return EXIT_FAILURE;
+            }
+            else if (strcmp(res, "ask") == 0)
+            {
+                char pwd[40];
+                printf("Enter Admin Password: ");
+                fflush(stdout);
+                fgets(pwd, 39, stdin);
+                str_trim_lf(pwd, 40);
+                send(sockfd, pwd, 40, 0);
+                char result[200];
+                int res_len = recv(sockfd, result, 200, 0);
+                if (res_len == 0)
+                {
+                    printf("Cannot receive!!\n");
+                    close(sockfd);
+                    return EXIT_FAILURE;
+                }
+                else if (strcmp(result, "true") == 0)
+                {
+                    printf("Enter Joining Alias ");
+                    fflush(stdout);
+                    fgets(username, 32, stdin);
+                    str_trim_lf(username, 32);
+                    send(sockfd, username, sizeof(username), 0);
+                    break;
+                }
+                else if (strcmp(result, "try") == 0)
+                {
+                    printf("\n %d tries left!!\n", MAX_TRIES - i - 1);
+                    fflush(stdout);
+                    // sleep(3); // wait for 'ask'
+                }
+                else
+                {
+                    printf("\n%s\nexiting..\n", result);
+                    // sleep(5);
+                    close(sockfd);
+                    return EXIT_FAILURE;
+                }
+            }
+            else
+            {
+                printf("\n%s\nexiting..\n", res);
+                // sleep(5);
+                close(sockfd);
+                return EXIT_FAILURE;
+            }
+        }
+        sleep(1); // for welcome msg
+    }
 
     printf("\033[1;32m[CLIENT] Connected. Type /exit to quit.\033[0m\n");
     printf("> ");
