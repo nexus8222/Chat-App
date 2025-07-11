@@ -36,12 +36,6 @@ void *vanish_cleaner_thread(void *arg)
     return NULL;
 }
 
-void trim_newline(char *s)
-{
-    int len = strlen(s);
-    if (len > 0 && s[len - 1] == '\n')
-        s[len - 1] = '\0';
-}
 
 void party_broadcast_system(const char *msg, int except_sock)
 {

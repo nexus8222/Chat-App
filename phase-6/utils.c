@@ -18,6 +18,15 @@ void send_to_client(client_t *cli, const char *fmt, ...)
     send(cli->sockfd, buffer, strlen(buffer), 0);
 }
 
+void trim_newline(char *s)
+{
+    int len = strlen(s);
+    if (len > 0 && s[len - 1] == '\n')
+        s[len - 1] = '\0';
+}
+
+
+
 void broadcast_message(const char *msg, client_t *sender)
 {
     pthread_mutex_lock(&clients_mutex);

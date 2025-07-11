@@ -10,6 +10,7 @@
 #include "utils.h"
 #include "client.h"
 #include "party.h"
+#include <pthread.h>
 #include <stdint.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -21,6 +22,8 @@ extern client_t *clients[MAX_CLIENTS];
 extern time_t server_start_time;
 extern lastseen_t lastseen_list[MAX_CLIENTS];
 extern char pinned_message[BUFFER_SIZE];
+extern pthread_mutex_t clients_mutex;
+
 #include "vanish.h"
 void broadcast_system(const char *msg)
 {
@@ -58,7 +61,7 @@ int handle_command(const char *cmdline, client_t *cli)
                        cli->is_admin ? "/kick <user>\n/ban <user>\n/unban <user>\n/banlist\n"
                                        "/mute <user>\n/unmute <user>\n/mutelist\n"
                                        "/broadcast <msg>\n/log\n/shutdown\n/pin <msg>\n/setmotd <msg>\n/parties\n"
-                                       "/lockparty\n/invite <user>\n/partyinfo <code>\n "
+                                       "/lockparty\n/invite <user>\n/partyinfo <code>\n/whois <username>\n"
 
                                      : "");
         return 1;
@@ -553,6 +556,56 @@ int handle_command(const char *cmdline, client_t *cli)
                     break;
                 }
             }
+        }
+
+        return 1;
+    }
+
+    if (strcmp(command, "whois") == 0)
+    {
+        if (!cli->is_admin)
+        {
+            send_to_client(cli, "\033[1;31m[DENIED] You must be admin to use /whois.\033[0m\n");
+            return 1;
+        }
+
+        if (strlen(arg1) == 0)
+        {
+            send_to_client(cli, "\033[1;33m[USAGE] /whois <username>\033[0m\n");
+            return 1;
+        }
+
+        pthread_mutex_lock(&clients_mutex);
+        int found = 0;
+
+        for (int i = 0; i < MAX_CLIENTS; ++i)
+        {
+            if (clients[i] && strcmp(clients[i]->username, arg1) == 0)
+            {
+                time_t now = time(NULL);
+                double online_time = difftime(now, clients[i]->join_time);
+
+                char buffer[512];
+                snprintf(buffer, sizeof(buffer),
+                         "\033[1;36m[WHOIS] User: %s\nIP: %s\nParty: %s\nAdmin: %s\nMuted: %s\nOnline: %.0f sec\033[0m",
+                         clients[i]->username,
+                         clients[i]->ip,
+                         clients[i]->party_code,
+                         clients[i]->is_admin ? "Yes" : "No",
+                         clients[i]->is_muted ? "Yes" : "No",
+                         online_time);
+
+                send_to_client(cli, "%s\n", buffer);
+                found = 1;
+                break;
+            }
+        }
+
+        pthread_mutex_unlock(&clients_mutex);
+
+        if (!found)
+        {
+            send_to_client(cli, "\033[1;31m[ERROR] User not found or offline.\033[0m\n");
         }
 
         return 1;
