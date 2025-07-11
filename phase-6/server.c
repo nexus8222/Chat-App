@@ -321,8 +321,10 @@ void *handle_client(void *arg)
     update_lastseen(cli->username);
     save_lastseen_to_file();
 
+    cli->active = 0;
     close(cli->sockfd);
     remove_client(cli->sockfd);
+
     free(cli);
     pthread_detach(pthread_self());
     return NULL;
@@ -423,6 +425,7 @@ int main()
 
         client_t *cli = (client_t *)malloc(sizeof(client_t));
         memset(cli, 0, sizeof(client_t));
+        cli->active = 1;
         cli->sockfd = new_sock;
         cli->address = cli_addr;
         cli->is_admin = 0;

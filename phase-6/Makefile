@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -pthread -O2
 
 # Object files
-OBJ_SERVER = server.o admin.o commands.o mute.o log.o banlist.o utils.o motd.o party.o lastseen.o vanish.o pwdgen.o
+OBJ_SERVER = server.o admin.o commands.o mute.o log.o banlist.o utils.o motd.o party.o lastseen.o vanish.o pwdgen.o game.o
 OBJ_CLIENT = client.o
 
 TARGET_SERVER = server

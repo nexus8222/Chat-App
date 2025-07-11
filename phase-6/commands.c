@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "lastseen.h"
+#include "game.h"
 extern client_t *clients[MAX_CLIENTS];
 extern time_t server_start_time;
 extern lastseen_t lastseen_list[MAX_CLIENTS];
@@ -49,21 +50,69 @@ int handle_command(const char *cmdline, client_t *cli)
     if (strcmp(command, "help") == 0)
     {
         send_to_client(cli,
-                       "\n\033[1mAvailable Commands:\033[0m\n"
-                       "/help\n/whoami\n/users\n/ping\n/time\n/uptime\n/motd\n"
-                       "/lastseen <user>\n"
-                       "/createparty [code]\n/joinparty <code>\n/party\n/leaveparty\n"
-                       "/msg <user> <message>\n"
-                       "/editlast <msg>\n"
-                       "/deletelast \n/setcolor <color>\n/colorlist\n"
-                       "/vanish <seconds> <message>\n"
-                       "%s\n",
-                       cli->is_admin ? "/kick <user>\n/ban <user>\n/unban <user>\n/banlist\n"
-                                       "/mute <user>\n/unmute <user>\n/mutelist\n"
-                                       "/broadcast <msg>\n/log\n/shutdown\n/pin <msg>\n/setmotd <msg>\n/parties\n"
-                                       "/lockparty\n/invite <user>\n/partyinfo <code>\n/whois <username>\n"
+                       "\n\033[1;36m======[ Available Commands ]======\033[0m\n"
+                       "\033[1m[General]\033[0m\n"
+                       " /help                - Show this menu\n"
+                       " /whoami              - Show your username and admin status\n"
+                       " /users               - List users in your party\n"
+                       " /ping                - Test latency (returns 'pong')\n"
+                       " /time                - Show current server time\n"
+                       " /uptime              - Show server uptime\n"
+                       " /motd                - Display the Message of the Day\n"
+                       " /lastseen <user>     - Check when a user was last seen\n\n"
 
+                       "\033[1m[Messaging]\033[0m\n"
+                       " /msg <user> <msg>    - Send a private message\n"
+                       " /editlast <msg>      - Edit your last message (within 30s)\n"
+                       " /deletelast          - Delete your last message (within 30s)\n"
+                       " /vanish <s> <msg>    - Send a message that disappears after s seconds\n\n"
+
+                       "\n\033[1;33mGames:\033[0m\n"
+                       "/guessgame start       Start number guessing game\n"
+                       "/guess <number>        Guess the number\n"
+
+                       "\033[1m[Customization]\033[0m\n"
+                       " /setcolor <color>    - Set your username color\n"
+                       " /colorlist           - List available colors\n\n"
+
+                       "\033[1m[Party System]\033[0m\n"
+                       " /createparty [code]  - Create a new party\n"
+                       " /joinparty <code>    - Join a party by code\n"
+                       " /party               - Show current party\n"
+                       " /leaveparty          - Leave current party\n\n"
+
+                       "%s",
+                       cli->is_admin ? "\033[1m[Admin Tools]\033[0m\n"
+                                       " /kick <user>         - Kick a user\n"
+                                       " /ban <user>          - Ban a user\n"
+                                       " /unban <user>        - Unban a user\n"
+                                       " /banlist             - Show banned users\n"
+                                       " /mute <user>         - Mute a user\n"
+                                       " /unmute <user>       - Unmute a user\n"
+                                       " /mutelist            - Show muted users\n"
+                                       " /broadcast <msg>     - Broadcast to all\n"
+                                       " /pin <msg>           - Pin an important message\n"
+                                       " /setmotd <msg>       - Set the Message of the Day\n"
+                                       " /log                 - View server log\n"
+                                       " /shutdown            - Shutdown the server\n"
+                                       " /parties             - List active parties\n"
+                                       " /lockparty           - Lock current party\n"
+                                       " /invite <user>       - Invite user to locked party\n"
+                                       " /partyinfo <code>    - View users in a party\n"
+                                       " /whois <username>    - Get info about a user\n\n"
                                      : "");
+
+        return 1;
+    }
+    if (strcmp(command, "guessgame") == 0 && strcmp(arg1, "start") == 0)
+    {
+        start_guess_game(cli);
+        return 1;
+    }
+
+    if (strcmp(command, "guess") == 0)
+    {
+        handle_guess_command(cli, arg1);
         return 1;
     }
 

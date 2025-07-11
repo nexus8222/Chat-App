@@ -20,6 +20,7 @@ typedef struct client {
     int sockfd;
     char username[USERNAME_LEN];
     
+    int active; 
     char ip[INET_ADDRSTRLEN];   // use system-defined 16
     int is_admin;
     int is_muted;
