@@ -78,103 +78,119 @@ void *recv_msg_handler(void *arg)
 
     while (1)
     {
-        int receive = recv(sockfd, message, LENGTH, 0);
-        if (receive > 0)
-        {
-            printf("\r\033[K"); // Clear line before any new message
+        fd_set read_fds;
+        struct timeval timeout;
 
-            if (strncmp(message, "__PRIVATE__:", 12) == 0)
+        FD_ZERO(&read_fds);
+        FD_SET(sockfd, &read_fds);
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        int activity = select(sockfd + 1, &read_fds, NULL, NULL, &timeout);
+
+        if (activity > 0 && FD_ISSET(sockfd, &read_fds))
+        {
+            int receive = recv(sockfd, message, LENGTH, 0);
+            if (receive > 0)
             {
-                char *from = strtok(message + 12, ":");
-                char *msg = strtok(NULL, "");
-                if (from && msg)
-                    printf("\033[1;35m[PM from %s]: %s\033[0m\n", from, msg);
+                printf("\r\033[K"); // Clear current input line
+
+                if (strncmp(message, "__PRIVATE__:", 12) == 0)
+                {
+                    char *from = strtok(message + 12, ":");
+                    char *msg = strtok(NULL, "");
+                    if (from && msg)
+                        printf("\033[1;35m[PM from %s]: %s\033[0m\n", from, msg);
+                    else
+                        printf("\033[1;31m[ERROR parsing private message]\033[0m\n");
+                }
+                else if (strncmp(message, "__VANISH__:", 11) == 0)
+                {
+                    int id, duration;
+                    char sender[32], msg[1024];
+
+                    if (sscanf(message, "__VANISH__:%d:%d:%31[^:]: %[^\n]", &id, &duration, sender, msg) == 4)
+                    {
+                        char short_msg[512];
+                        strncpy(short_msg, msg, sizeof(short_msg) - 1);
+                        short_msg[sizeof(short_msg) - 1] = '\0';
+
+                        printf("\033[1;33m[VANISH] %s: %s\033[0m (expires in %d sec)\n", sender, short_msg, duration);
+
+                        if (vanish_index < 100)
+                        {
+                            vanish_messages[vanish_index].id = id;
+                            vanish_messages[vanish_index].duration = duration;
+                            snprintf(vanish_messages[vanish_index].content, sizeof(vanish_messages[vanish_index].content),
+                                     "\033[1;33m[VANISH] %s: %s\033[0m (expires in %d sec)\n", sender, short_msg, duration);
+                            vanish_index++;
+                        }
+                    }
+
+                    memset(message, 0, sizeof(message));
+                    continue;
+                }
+                else if (strncmp(message, "__EDIT__:", 9) == 0)
+                {
+                    int id;
+                    char newmsg[BUFFER_SIZE];
+
+                    if (sscanf(message, "__EDIT__:%d:%[^\n]", &id, newmsg) == 2)
+                    {
+                        for (int i = 0; i < vanish_index; ++i)
+                        {
+                            if (vanish_messages[i].id == id)
+                            {
+                                char shortmsg[1001];
+                                strncpy(shortmsg, newmsg, 1000);
+                                shortmsg[1000] = '\0';
+
+                                snprintf(vanish_messages[i].content, sizeof(vanish_messages[i].content),
+                                         "\033[1;34m[EDITED] %s\033[0m\n", shortmsg);
+
+                                printf("\033[F\033[2K\r%s", vanish_messages[i].content);
+                                fflush(stdout);
+                                break;
+                            }
+                        }
+                    }
+
+                    memset(message, 0, sizeof(message));
+                    continue;
+                }
+                else if (strncmp(message, "__DELETE__:", 11) == 0)
+                {
+                    int id;
+                    if (sscanf(message, "__DELETE__:%d", &id) == 1)
+                    {
+                        for (int i = 0; i < vanish_index; ++i)
+                        {
+                            if (vanish_messages[i].id == id)
+                            {
+                                printf("\033[F\033[2K\r\033[1;31m[DELETED] Message ID %d has vanished.\033[0m\n", id);
+                                fflush(stdout);
+                                vanish_messages[i].content[0] = '\0'; // Invalidate
+                                break;
+                            }
+                        }
+                    }
+
+                    memset(message, 0, sizeof(message));
+                    continue;
+                }
                 else
-                    printf("\033[1;31m[ERROR parsing private message]\033[0m\n");
-            }
-            else if (strncmp(message, "__VANISH__:", 11) == 0)
-            {
-                int id, duration;
-                char sender[32], msg[1024];
-                if (sscanf(message, "__VANISH__:%d:%d:%31[^:]: %[^\n]", &id, &duration, sender, msg) == 4)
                 {
-                    // Clip msg to avoid snprintf overflow
-                    char short_msg[512];
-                    strncpy(short_msg, msg, sizeof(short_msg) - 1);
-                    short_msg[sizeof(short_msg) - 1] = '\0';
-
-                    printf("\033[1;33m[VANISH] %s: %s\033[0m (expires in %d sec)\n", sender, short_msg, duration);
-
-                    // Store line for erasure
-                    if (vanish_index < 100)
-                    {
-                        vanish_messages[vanish_index].id = id;
-                        vanish_messages[vanish_index].duration = duration;
-                        snprintf(vanish_messages[vanish_index].content, sizeof(vanish_messages[vanish_index].content),
-                                 "\033[1;33m[VANISH] %s: %s\033[0m (expires in %d sec)\n", sender, short_msg, duration);
-                        vanish_index++;
-                    }
+                    printf("%s\n", message);
                 }
-            }
 
-            // Handle EDIT
-            if (strncmp(message, "__EDIT__:", 9) == 0)
+                // Redraw input prompt
+                printf("> %s", input);
+                fflush(stdout);
+            }
+            else if (receive == 0)
             {
-                int id;
-                char newmsg[BUFFER_SIZE];
-                if (sscanf(message, "__EDIT__:%d:%[^\n]", &id, newmsg) == 2)
-                {
-                    for (int i = 0; i < vanish_index; ++i)
-                    {
-                        if (vanish_messages[i].id == id)
-                        {
-                            char shortmsg[1001];
-                            strncpy(shortmsg, newmsg, 1000);
-                            shortmsg[1000] = '\0';
-
-                            snprintf(vanish_messages[i].content, sizeof(vanish_messages[i].content),
-                                     "\033[1;34m[EDITED] %s\033[0m\n", shortmsg);
-
-                            printf("\033[F\033[2K\r%s", vanish_messages[i].content);
-                            fflush(stdout);
-                            break;
-                        }
-                    }
-                }
-                continue;
+                break; // server closed
             }
-
-            // Handle DELETE
-            if (strncmp(message, "__DELETE__:", 11) == 0)
-            {
-                int id;
-                if (sscanf(message, "__DELETE__:%d", &id) == 1)
-                {
-                    for (int i = 0; i < vanish_index; ++i)
-                    {
-                        if (vanish_messages[i].id == id)
-                        {
-                            printf("\033[F\033[2K\r");            // Clear previous line
-                            vanish_messages[i].content[0] = '\0'; // Invalidate message
-                            break;
-                        }
-                    }
-                }
-                continue;
-            }
-
-            else
-            {
-                printf("%s\n", message);
-            }
-
-            // Redraw input prompt
-            printf("> %s", input);
-            fflush(stdout);
-        }
-        else if (receive == 0)
-        {
-            break;
         }
 
         memset(message, 0, sizeof(message));

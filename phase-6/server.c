@@ -257,7 +257,11 @@ void *handle_client(void *arg)
     cli->join_time = time(NULL);
     inet_ntop(AF_INET, &cli->address.sin_addr, cli->ip, INET_ADDRSTRLEN);
     log_connection(cli->username, cli->ip);
-    printf("%s joined as is admin\n\n", cli->username);
+    if (cli->is_admin)
+        printf("%s joined as admin\n", cli->username);
+    else
+        printf("%s joined as user\n", cli->username);
+
     fflush(stdout);
     strncpy(cli->party_code, "public", PARTY_CODE_LEN);
 
