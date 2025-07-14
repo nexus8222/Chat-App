@@ -59,13 +59,16 @@ int handle_command(const char *cmdline, client_t *cli)
                        " /time                - Show current server time\n"
                        " /uptime              - Show server uptime\n"
                        " /motd                - Display the Message of the Day\n"
+                       " /clear                - Clear the working screan       \n"
                        " /lastseen <user>     - Check when a user was last seen\n\n"
 
                        "\033[1m[Messaging]\033[0m\n"
                        " /msg <user> <msg>    - Send a private message\n"
                        " /editlast <msg>      - Edit your last message (within 30s)\n"
                        " /deletelast          - Delete your last message (within 30s)\n"
+                       " /emoji <index>       - Use /emoji to view all avaible emojis and use /emoji <no> \n"
                        " /vanish <s> <msg>    - Send a message that disappears after s seconds\n\n"
+
 
                        "\n\033[1;33mGames:\033[0m\n"
                        "/guessgame start       Start number guessing game\n"
@@ -575,10 +578,18 @@ int handle_command(const char *cmdline, client_t *cli)
         strncpy(left_party, cli->party_code, PARTY_CODE_LEN);
         left_party[PARTY_CODE_LEN - 1] = '\0';
 
-        cli->party_code[0] = '\0';
+        // Reset to public room
+        strncpy(cli->party_code, "public", PARTY_CODE_LEN);
         cli->invited_party[0] = '\0';
 
-        send_to_client(cli, "[SERVER] You have left party '%s'.\n", left_party);
+        send_to_client(cli, "\033[1;35m[SERVER] You have left party '%s' and rejoined the public room.\033[0m\n", left_party);
+
+        // Optional: Broadcast to public room
+        char buf[128];
+        snprintf(buf, sizeof(buf), "\033[1;35m[JOIN] %s rejoined the public room.\033[0m\n", cli->username);
+        party_broadcast(buf, "public", cli->sockfd);
+
+        send_to_client(cli, "\033[1;35m[SERVER] You have left party '%s'.\033[0m\n", left_party);
 
         int still_has_members = 0;
         for (int i = 0; i < MAX_CLIENTS; ++i)

@@ -15,6 +15,8 @@
 #include "common.h"
 #include <time.h>
 #include "pwdgen.h"
+#include "emoji.h"
+
 #define INPUT_BUFFER 1024
 char input[INPUT_BUFFER];
 int input_len = 0;
@@ -233,11 +235,50 @@ void chat_loop()
             else if (ch == '\n')
             {
                 input[input_len] = '\0';
+
                 if (strcmp(input, "/exit") == 0)
                 {
                     flag = 1;
                     break;
                 }
+                if (strncmp(input, "/emoji", 6) == 0)
+                {
+                    int num;
+                    if (sscanf(input, "/emoji %d", &num) == 1)
+                    {
+                        const char *emoji = get_emoji_by_index(num);
+                        if (emoji)
+                        {
+                            snprintf(input, INPUT_BUFFER, "%s", emoji); // overwrite input with emoji
+                            send(sockfd, input, strlen(input), 0);      // send immediately
+                        }
+                        else
+                        {
+                            printf("Invalid emoji index.\n");
+                        }
+                    }
+                    else
+                    {
+                        display_emoji_tab_with_index(); // show panel
+                    }
+                    input_len = 0;
+                    input[0] = '\0';
+                    printf("\r\033[K> ");
+                    fflush(stdout);
+                    continue;
+                }
+
+                else if (strcmp(input, "/clear") == 0)
+                {
+                    printf("\033[2J\033[H"); // Clear screen + move cursor to top-left
+                    fflush(stdout);
+                    input_len = 0;
+                    input[0] = '\0';
+                    printf("\r\033[K> ");
+                    fflush(stdout);
+                    continue; // skip sending to server
+                }
+
                 if (input_len > 0)
                 {
                     send(sockfd, input, strlen(input), 0);
@@ -247,6 +288,7 @@ void chat_loop()
                 printf("\r\033[K> ");
                 fflush(stdout);
             }
+
             else if (input_len < INPUT_BUFFER - 4)
             {
                 input[input_len++] = ch;
@@ -332,7 +374,7 @@ int main(int argc, char **argv)
                 }
                 else if (strcmp(result, "true") == 0)
                 {
-                    printf("Enter Joining Alias ");
+                    printf("Enter Joining Alias: ");
                     fflush(stdout);
                     fgets(username, 32, stdin);
                     str_trim_lf(username, 32);

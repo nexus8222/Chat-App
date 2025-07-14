@@ -72,3 +72,11 @@ void list_active_parties(client_t *cli)
     else
         send_to_client(cli, "\033[1mActive Parties:\033[0m\n\n%s", parties);
 }
+
+void party_broadcast(const char *msg, const char *party_code, int except_sock) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i] && strcmp(clients[i]->party_code, party_code) == 0 && clients[i]->sockfd != except_sock) {
+            send(clients[i]->sockfd, msg, strlen(msg), 0);
+        }
+    }
+}

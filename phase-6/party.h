@@ -16,6 +16,7 @@ typedef struct {
 int party_exists(const char *code);
 int create_party(const char *code);
 void list_active_parties(client_t *cli);
+void party_broadcast(const char *msg, const char *party_code, int except_sock);
 
 extern party_info_t party_list[MAX_PARTIES];
 extern int party_count;

@@ -252,9 +252,9 @@ void *handle_client(void *arg)
     inet_ntop(AF_INET, &cli->address.sin_addr, cli->ip, INET_ADDRSTRLEN);
     log_connection(cli->username, cli->ip);
     if (cli->is_admin)
-        printf("%s joined as admin\n", cli->username);
+        printf("\033[1;35m %s JOINED AS -> ADMIN.\033[0m\n", cli->username);
     else
-        printf("%s joined as user\n", cli->username);
+        printf("\033[1;39m %s  JOINED AS -> USER.\033[0m\n", cli->username);
 
     fflush(stdout);
     strncpy(cli->party_code, "public", PARTY_CODE_LEN);
@@ -301,7 +301,7 @@ void *handle_client(void *arg)
         }
         else
         {
-            char msg[2048];
+            char msg[2072];
             snprintf(msg, sizeof(msg), "%s[%s]:%s %s\n",
                      cli->color,
                      cli->username,
@@ -403,7 +403,8 @@ int main()
     init_vanish_module();
     pthread_t vanish_thread;
     pthread_create(&vanish_thread, NULL, vanish_cleaner_thread, NULL);
-
+    create_party("public");
+    
     while (1)
     {
         int new_sock = accept(listener, (struct sockaddr *)&cli_addr, &cli_len);
