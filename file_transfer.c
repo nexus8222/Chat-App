@@ -58,8 +58,21 @@ static file_transfer_t *find_free_transfer()
     return NULL;
 }
 
+static file_progress_callback_t g_progress_cb = NULL;
+
+void file_transfer_set_progress_callback(file_progress_callback_t cb)
+{
+    g_progress_cb = cb;
+}
+
 static void print_progress(const char *filename, int current, int total)
 {
+    if (g_progress_cb)
+    {
+        g_progress_cb(filename, current, total);
+        return;
+    }
+
     int percent = (total > 0) ? (current * 100 / total) : 0;
     if (percent > 100) percent = 100;
     int bar_width = 25;

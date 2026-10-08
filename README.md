@@ -1,33 +1,36 @@
-# Terminal Chat App 🚀
+# Kukupu Chat
 ### Production-Grade Concurrent Terminal Chat Ecosystem in Pure C
 
 [![Language](https://img.shields.io/badge/Language-C11-blue.svg)](https://en.cppreference.com/w/c)
 [![Security](https://img.shields.io/badge/Security-OpenSSL%203.0-green.svg)](https://www.openssl.org/)
 [![Protocol](https://img.shields.io/badge/Cryptography-Signal%20Double%20Ratchet-blueviolet.svg)](https://signal.org/docs/specifications/doubleratchet/)
+[![Interface](https://img.shields.io/badge/Interface-Full--Screen%20TUI-cyan.svg)]()
 [![Build](https://img.shields.io/badge/Build-Passing%20(0%20warnings)-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)]()
 
-A high-performance, multithreaded terminal chat server and client written in pure C using POSIX sockets, `pthread` concurrency, and OpenSSL 3.0. Features **Signal-style Double Ratchet End-to-End Encryption (E2EE)**, **in-band chunked file streaming with SHA-256 integrity verification**, **Token Bucket anti-spam rate limiting**, **PBKDF2-HMAC-SHA256 administrative authentication**, **ephemeral vanishing messages**, **multi-room parties**, and **raw-mode terminal UX enhancements** (Tab auto-completion, history navigation, and live typing indicators).
+A high-performance, multithreaded terminal chat server and client written in pure C using POSIX sockets, `pthread` concurrency, and OpenSSL 3.0. Features a **full-screen terminal chat interface (TUI)** with zero-flicker double buffering and split-pane layout, **Signal-style Double Ratchet End-to-End Encryption (E2EE)**, **in-band chunked file streaming with SHA-256 integrity verification**, **Token Bucket anti-spam rate limiting**, **PBKDF2-HMAC-SHA256 administrative authentication**, **ephemeral vanishing messages**, **multi-room parties**, and **raw-mode terminal controls** (history recall, cursor editing, Tab autocompletion, PageUp/PageDown scrollback, and live typing indicators).
 
 ---
 
-## 📑 Table of Contents
-- [Key Features](#-key-features)
-- [Architecture & Cryptographic Design](#-architecture--cryptographic-design)
-- [Project Structure](#-project-structure)
-- [Prerequisites & Dependencies](#-prerequisites--dependencies)
-- [Build & Quick Start](#-build--quick-start)
-- [Docker Deployment](#-docker-deployment)
-- [Command Reference](#-command-reference)
-- [Internal Wire Protocol](#-internal-wire-protocol)
-- [Automated Verification Suite](#-automated-verification-suite)
-- [Developer & License](#-developer--license)
+## Table of Contents
+- [Key Features](#key-features)
+- [Terminal User Interface (TUI) Layout](#terminal-user-interface-tui-layout)
+- [Architecture & Cryptographic Design](#architecture--cryptographic-design)
+- [Project Structure](#project-structure)
+- [Prerequisites & Dependencies](#prerequisites--dependencies)
+- [Build & Quick Start](#build--quick-start)
+- [Docker Deployment](#docker-deployment)
+- [Command Reference](#command-reference)
+- [Keyboard Controls & Shortcuts](#keyboard-controls--shortcuts)
+- [Internal Wire Protocol](#internal-wire-protocol)
+- [Automated Verification Suite](#automated-verification-suite)
+- [Developer & License](#developer--license)
 
 ---
 
-## 🌟 Key Features
+## Key Features
 
-### 🔒 1. Signal-Style Double Ratchet E2EE
+### [1] Signal-Style Double Ratchet E2EE
 - **End-to-End Encryption**: Zero server-side plaintext visibility.
 - **Diffie-Hellman Ratchet**: Curve25519 (`X25519`) dynamic key exchange on alternating rounds.
 - **Symmetric Chain Ratchet**: HKDF-SHA256 message and chain key derivations (`WhisperRatchetRoot`, `WhisperRatchetChain`, `WhisperMessageKeys`).
@@ -35,46 +38,72 @@ A high-performance, multithreaded terminal chat server and client written in pur
 - **Forward Secrecy & Break-in Recovery**: Old keys cannot decrypt future messages; past keys cannot be derived from a compromised ephemeral state.
 - **Public Key Directory**: Automatic identity key broadcast and directory querying via `__IDKEY__` and `__KEYREQ__`.
 
-### 📁 2. Chunked In-Band File Transfer
+### [2] Chunked In-Band File Transfer
 - **In-Band Slicing**: Files are split into 1024-byte chunks and streamed via Base64 wire packets.
 - **Negotiation Protocol**: Senders issue transfer offers; receivers interactively accept (`/fileaccept <id>`) or decline (`/filedecline <id>`).
 - **Integrity Verification**: Automatic SHA-256 checksum comparison on the receiving client before saving into `downloads/`.
-- **Live Terminal Progress Bar**: Dynamic ASCII progress bar (`[===========>       ] 60%`) rendered in real-time.
+- **Live Terminal Progress Bar**: Dynamic ASCII progress bar (`[FILE XFER] report.pdf [=============>   ] 75%`) rendered directly in the TUI status pane.
 
-### 🛡️ 3. Anti-Spam Rate Limiting & DoS Defense
+### [3] Anti-Spam Rate Limiting & DoS Defense
 - **Token Bucket Algorithm**: 5.0 token capacity with continuous 1.5 tokens/sec replenishment per client.
 - **Automated Mute Enforcement**: Warns users when tokens deplete; automatically applies a 15-second mute upon 3 consecutive burst violations.
 - **Per-IP Connection Throttling**: Restricts maximum concurrent TCP connections per IP address to mitigate socket-exhaustion DoS attacks.
 - **Protocol Fast-Path**: Internal control messages (`__FILECHUNK__`, `__TYPING__`, `__E2EE__`) bypass human rate limits to prevent file stalls.
 
-### 🔐 4. Secure PBKDF2 Authentication & Offline Inbox
-- **Cryptographic Storage**: Replaced plaintext files with OpenSSL PBKDF2-HMAC-SHA256 (10,000 iterations, 16-byte cryptographically secure random salt) stored in `admin.cred`.
+### [4] Secure PBKDF2 Authentication & Offline Inbox
+- **Cryptographic Storage**: OpenSSL PBKDF2-HMAC-SHA256 (10,000 iterations, 16-byte secure random salt) stored in `admin.cred`.
 - **Dynamic Password Management**: Administrators can rotate server passwords at runtime with `/setadminpwd <newpwd>`.
 - **Persistent Offline Store**: Private messages to offline users are queued in `offline_inbox.dat` and replayed immediately upon reconnection with original timestamps.
 
-### 👥 5. Multi-Room Party System
+### [5] Multi-Room Party System
 - **Isolated Channels**: Create, join, or leave isolated chat rooms (`/createparty`, `/joinparty`, `/leaveparty`).
 - **Room Access Control**: Lock rooms with `/lockparty` or invite specific users with `/inviteparty`.
 
-### ⏱️ 6. Vanishing Messages & Mini-Games
+### [6] Vanishing Messages & Mini-Games
 - **Self-Destructing Messages**: Send messages that automatically vanish after a specified TTL (`/vanish <sec> <msg>`).
 - **Interactive Mini-Games**: Multiplayer number-guessing game with turn cycling and scoreboards (`/game`).
 
-### 💻 7. Modern Terminal UX
-- **Tab Autocompletion**: Press `<Tab>` to cycle through slash commands.
-- **Command History Navigation**: Browse previously typed commands using Up/Down arrow keys.
-- **Live Typing Indicators**: Peers receive real-time notifications when a user is composing a message (`__TYPING__`).
-- **ANSI Color Customization**: Customize chat aesthetics on the fly (`/setcolor <color>`).
-- **Interactive Emoji Picker**: 80+ categorized UTF-8 emojis accessible via `/emoji`.
+### [7] Professional Full-Screen Terminal UI (TUI)
+- **Alternate Screen Buffer**: Uses `\033[?1049h` and `\033[?1049l` to preserve standard shell scrollback.
+- **Flicker-Free Double Buffering**: Pre-renders entire screen frame into an off-screen buffer before a single atomic flush.
+- **Split-Pane Architecture**: Top header bar, main chat viewport, collapsible members sidebar, dedicated status bar, and pinned input box.
+- **Dynamic Resize Support**: Automatically adapts to window geometry changes via `SIGWINCH` and `TIOCGWINSZ`.
+- **Zero Emojis Policy**: Clean, high-contrast ASCII and UTF-8 box characters (`┌`, `─`, `┐`, `│`, `└`, `┘`, `╭`, `╰`, `╮`, `╯`, `├`, `┤`, `*`, `>`).
 
 ---
 
-## 🏛️ Architecture & Cryptographic Design
+## Terminal User Interface (TUI) Layout
+
+```text
+┌── [KUKUPU CHAT] ── Room: #0000 ── [E2EE: ACTIVE] ── User: @alice ──────────────────┐
+│ [14:20] --- [SYS] Connected to Kukupu Chat.                     │ [MEMBERS (2)]    │
+│ [14:20] --- [SYS] Signal Double Ratchet E2EE active.            │ * alice (you)    │
+│ [14:21] <bob> Hey Alice, how is the project going?              │ * bob            │
+│ [14:21] [YOU] > Working on the terminal user interface!         │ ─────────────────│
+│ [14:22] [E2EE:bob] > Double Ratchet forward secrecy is verified!│ [CHANNEL #0000]  │
+│ [14:22] [FILE:bob] Offer: 'report.pdf' (120 KB) -> Type /fileaccept 1000           │
+│                                                                 │ Mode: Public     │
+├─ [STATUS] Typing: bob is typing a message... ──────────────────────────────────────┤
+╭─ Message #0000 ────────────────────────────────────────────────────────────────────╮
+│ >                                                                                  │
+╰─ [Tab] Autocomplete  •  [PgUp/PgDn] Scroll  •  [/exit] Quit ───────────────────────╯
+```
+
+### UI Panes & Components:
+1. **Header Bar**: Displays application brand, current channel (`Room: #0000`), E2EE status badge, and username handle.
+2. **Main Viewport**: Formatted message log with timestamp tags (`[HH:MM]`), clean badges (`<bob>`, `[YOU]`, `[E2EE:bob]`, `--- [SYS] ---`, `[FILE:bob]`), and automatic word-wrapping.
+3. **Members Sidebar**: 22-column right panel displaying online user list, self indicator (`* user (you)`), and room modes. Automatically collapses on compact screens (< 80 columns).
+4. **Status / Typing Divider**: Dedicated status bar for peer typing indicators (`Typing: bob is typing...`) and active file transfer progress bars.
+5. **Pinned Input Container**: Clean rounded container (`╭───╮ │ > ... │ ╰───╯`) with full cursor navigation and autocomplete preview hints.
+
+---
+
+## Architecture & Cryptographic Design
 
 ```
 +-----------------------------------------------------------------------------+
 |                           CLIENT TERMINAL (Alice)                           |
-|  [Raw Mode Termios]  <--->  [Double Ratchet Engine]  <--->  [File Streamer] |
+|  [TUI Engine (ui.c)]  <--->  [Double Ratchet Engine]  <--->  [File Streamer] |
 +-----------------------------------------------------------------------------+
                                       |
                      TCP / POSIX Sockets (Port 9001)
@@ -93,13 +122,13 @@ A high-performance, multithreaded terminal chat server and client written in pur
                                       v
 +-----------------------------------------------------------------------------+
 |                            CLIENT TERMINAL (Bob)                            |
-|  [Raw Mode Termios]  <--->  [Double Ratchet Engine]  <--->  [File Receiver] |
+|  [TUI Engine (ui.c)]  <--->  [Double Ratchet Engine]  <--->  [File Receiver] |
 +-----------------------------------------------------------------------------+
 ```
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 .
@@ -112,6 +141,7 @@ A high-performance, multithreaded terminal chat server and client written in pur
 │
 ├── server.c                # Master server daemon & socket accept loop
 ├── client.c                # Production client with raw termios & event multiplexing
+├── ui.h / ui.c             # Full-screen terminal user interface (TUI) engine
 │
 ├── crypto_utils.h / .c     # OpenSSL 3.0 wrappers: X25519, HKDF, AES-256-GCM, PBKDF2
 ├── e2ee.h / .c             # Signal Double Ratchet protocol implementation
@@ -263,7 +293,25 @@ docker compose down
 
 ---
 
-## ⚡ Internal Wire Protocol
+## Keyboard Controls & Shortcuts
+
+| Key / Shortcut | Action | Description |
+|:---|:---|:---|
+| `PageUp` | Scroll Up | Scrolls viewport upwards into message history (up to 600 buffered lines). |
+| `PageDown` | Scroll Down | Scrolls viewport downwards toward latest messages. |
+| `Tab` | Autocomplete | Auto-completes slash commands (`/msg`, `/e2ee`, `/sendfile`, etc.). |
+| `Up Arrow` | History Previous | Recalls previously sent commands and messages into the input line. |
+| `Down Arrow` | History Next | Cycles forward through recent input command history. |
+| `Left Arrow` | Cursor Left | Shifts editing cursor leftwards within the current input string. |
+| `Right Arrow` | Cursor Right | Shifts editing cursor rightwards within the current input string. |
+| `Home` / `Ctrl+A` | Line Start | Moves cursor to the start of the input prompt. |
+| `End` / `Ctrl+E` | Line End | Moves cursor to the end of the input prompt. |
+| `Ctrl+L` | Redraw Screen | Forces a complete recalculation and double-buffered frame redraw. |
+| `Ctrl+C` | Graceful Exit | Exits the client, restores terminal raw mode and resets screen buffer. |
+
+---
+
+## Internal Wire Protocol
 
 The server uses an internal protocol router (`handle_internal_protocol`) to differentiate between human chat inputs and subsystem control packets:
 
@@ -282,7 +330,7 @@ The server uses an internal protocol router (`handle_internal_protocol`) to diff
 
 ---
 
-## 🧪 Automated Verification Suite
+## Automated Verification Suite
 
 The repository includes a comprehensive, multi-client socket-level integration test suite in [`test_e2e_full.c`](test_e2e_full.c). It tests concurrent clients connected over live TCP sockets against the server.
 
@@ -305,13 +353,13 @@ gcc -Wall -Wextra -pthread -O2 test_e2e_full.c crypto_utils.c e2ee.c file_transf
 
 ```text
 ============================================================
-   SOC CHAT APP - FULL END-TO-END AUTOMATED TEST SUITE
+   KUKUPU CHAT - FULL END-TO-END AUTOMATED TEST SUITE
 ============================================================
-[TEST 1] Testing E2EE Double Ratchet Over Sockets...              PASSED ✓
-[TEST 2] Testing Chunked File Transfer & SHA-256 Integrity...     PASSED ✓
-[TEST 3] Testing Rate Limiting & Anti-Spam Defense...             PASSED ✓
-[TEST 4] Testing Offline Messaging Inbox...                       PASSED ✓
-[TEST 5] Testing Admin Authentication via PBKDF2...               PASSED ✓
+[TEST 1] Testing E2EE Double Ratchet Over Sockets...              PASSED [OK]
+[TEST 2] Testing Chunked File Transfer & SHA-256 Integrity...     PASSED [OK]
+[TEST 3] Testing Rate Limiting & Anti-Spam Defense...             PASSED [OK]
+[TEST 4] Testing Offline Messaging Inbox...                       PASSED [OK]
+[TEST 5] Testing Admin Authentication via PBKDF2...               PASSED [OK]
 ============================================================
    ALL 5 END-TO-END TESTS COMPLETED AND PASSED (100%)!
 ============================================================
@@ -319,7 +367,7 @@ gcc -Wall -Wextra -pthread -O2 test_e2e_full.c crypto_utils.c e2ee.c file_transf
 
 ---
 
-## 👨‍💻 Developer & License
+## Developer & License
 
 Developed with passion by **[NEXUS8222](https://github.com/nexus8222)**  
 *Systems Developer, Network Engineer & Cybersecurity Enthusiast.*

@@ -49,4 +49,7 @@ int file_transfer_complete(int id);
 // Background pump for sender chunks
 void file_transfer_sender_tick(int sockfd);
 
+typedef void (*file_progress_callback_t)(const char *filename, int current_chunk, int total_chunks);
+void file_transfer_set_progress_callback(file_progress_callback_t cb);
+
 #endif // FILE_TRANSFER_H

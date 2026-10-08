@@ -15,30 +15,22 @@
 #include "e2ee.h"
 #include "file_transfer.h"
 #include "crypto_utils.h"
+#include "ui.h"
 
 #define INPUT_BUFFER 1024
 #define LENGTH 4096
-#define MAX_LOCAL_VANISH 100
 #define HISTORY_MAX 50
 #define MAX_TRIES 5
 
-char input[INPUT_BUFFER];
-int input_len = 0;
-struct termios orig_termios;
+static char input[INPUT_BUFFER];
+static int input_len = 0;
+static int cursor_pos = 0;
+static char current_suggestion[128] = {0};
 
-volatile sig_atomic_t flag = 0;
-int sockfd = 0;
-char username[32];
-
-typedef struct
-{
-    int id;
-    int duration;
-    char content[1024];
-} vanish_display_t;
-
-vanish_display_t vanish_messages[MAX_LOCAL_VANISH];
-int vanish_index = 0;
+static struct termios orig_termios;
+static volatile sig_atomic_t flag = 0;
+static int sockfd = 0;
+static char username[32];
 
 static char history[HISTORY_MAX][INPUT_BUFFER];
 static int history_count = 0;
@@ -68,7 +60,7 @@ static void history_add(const char *cmd)
     history_pos = history_count;
 }
 
-void str_trim_lf(char *arr, int length)
+static void str_trim_lf(char *arr, int length)
 {
     for (int i = 0; i < length; i++)
     {
@@ -80,20 +72,64 @@ void str_trim_lf(char *arr, int length)
     }
 }
 
-void catch_ctrl_c_and_exit(int sig)
+static void strip_ansi(const char *src, char *dst, size_t max)
+{
+    size_t d = 0;
+    int in_esc = 0;
+    for (size_t i = 0; src[i] && d < max - 1; i++)
+    {
+        if (src[i] == '\033')
+        {
+            in_esc = 1;
+        }
+        else if (in_esc && (src[i] == 'm' || src[i] == 'K' || src[i] == 'H' || src[i] == 'J'))
+        {
+            in_esc = 0;
+        }
+        else if (!in_esc)
+        {
+            dst[d++] = src[i];
+        }
+    }
+    dst[d] = '\0';
+}
+
+static void update_command_suggestion(void)
+{
+    if (input_len > 0 && input[0] == '/')
+    {
+        char matches[128] = {0};
+        int count = 0;
+        for (int i = 0; tab_commands[i] != NULL && count < 5; ++i)
+        {
+            if (strncmp(tab_commands[i], input, input_len) == 0)
+            {
+                if (count > 0) strncat(matches, "  ", sizeof(matches) - strlen(matches) - 1);
+                strncat(matches, tab_commands[i], sizeof(matches) - strlen(matches) - 1);
+                count++;
+            }
+        }
+        if (count > 0)
+        {
+            snprintf(current_suggestion, sizeof(current_suggestion), "%s", matches);
+            return;
+        }
+    }
+    current_suggestion[0] = '\0';
+}
+
+static void catch_ctrl_c_and_exit(int sig)
 {
     (void)sig;
     flag = 1;
-    ssize_t w = write(STDOUT_FILENO, "\n\033[1;33m[CLIENT] Ctrl+C pressed, exiting...\033[0m\n", 47);
-    (void)w;
 }
 
-void disable_raw_mode()
+static void disable_raw_mode(void)
 {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
 
-void enable_raw_mode()
+static void enable_raw_mode(void)
 {
     tcgetattr(STDIN_FILENO, &orig_termios);
     atexit(disable_raw_mode);
@@ -133,11 +169,11 @@ static void handle_received_line(char *line)
         int seq = 0;
         if (e2ee_decrypt_packet(line, from, plaintext, sizeof(plaintext), &seq) == 0)
         {
-            printf("\033[1;32m🔒 [E2EE from %s (ratchet #%d)]: %s\033[0m\n", from, seq, plaintext);
+            ui_add_message(MSG_E2EE, from, plaintext, 0);
         }
         else
         {
-            printf("\033[1;31m[E2EE ERROR] Failed to decrypt Double Ratchet message!\033[0m\n");
+            ui_add_message(MSG_ERROR, "E2EE", "Failed to decrypt Double Ratchet envelope.", 0);
         }
         return;
     }
@@ -151,6 +187,10 @@ static void handle_received_line(char *line)
                    &fid, from, filename, &fsize, sha) == 5)
         {
             file_transfer_handle_request(fid, from, filename, fsize, sha);
+            char offer[512];
+            snprintf(offer, sizeof(offer), "Offer: '%s' (%zu B) -> Type /fileaccept %d or /filedecline %d",
+                     filename, fsize, fid, fid);
+            ui_add_message(MSG_FILE, from, offer, fid);
         }
         return;
     }
@@ -162,6 +202,7 @@ static void handle_received_line(char *line)
         if (sscanf(line, "__FILEACCEPT__:%d:%31s", &fid, from) == 2)
         {
             file_transfer_handle_accept(fid, sockfd);
+            ui_add_message(MSG_FILE, from, "Accepted transfer. Streaming data...", fid);
         }
         return;
     }
@@ -172,7 +213,9 @@ static void handle_received_line(char *line)
         char from[32] = {0};
         if (sscanf(line, "__FILEDECLINE__:%d:%31s", &fid, from) == 2)
         {
-            printf("\033[1;33m[FILE] %s declined transfer #%d.\033[0m\n", from, fid);
+            char dec[128];
+            snprintf(dec, sizeof(dec), "Declined file transfer #%d.", fid);
+            ui_add_message(MSG_FILE, from, dec, fid);
         }
         return;
     }
@@ -194,6 +237,8 @@ static void handle_received_line(char *line)
         if (sscanf(line, "__FILEDONE__:%d", &fid) == 1)
         {
             file_transfer_complete(fid);
+            ui_clear_file_progress();
+            ui_add_message(MSG_FILE, "System", "File transfer completed and verified with SHA-256.", fid);
         }
         return;
     }
@@ -203,7 +248,7 @@ static void handle_received_line(char *line)
         char typing_user[32] = {0};
         if (sscanf(line, "__TYPING__:%31s", typing_user) == 1)
         {
-            printf("\033[2m[%s is typing...]\033[0m\n", typing_user);
+            ui_set_typing(typing_user);
         }
         return;
     }
@@ -213,9 +258,7 @@ static void handle_received_line(char *line)
         char *from = strtok(line + 12, ":");
         char *msg = strtok(NULL, "");
         if (from && msg)
-            printf("\033[1;35m[PM from %s]: %s\033[0m\n", from, msg);
-        else
-            printf("\033[1;31m[ERROR parsing private message]\033[0m\n");
+            ui_add_message(MSG_PRIVATE, from, msg, 0);
         return;
     }
 
@@ -223,23 +266,11 @@ static void handle_received_line(char *line)
     {
         int id, duration;
         char sender[32], msg[1024];
-
         if (sscanf(line, "__VANISH__:%d:%d:%31[^:]: %1023[^\n]", &id, &duration, sender, msg) == 4)
         {
-            char short_msg[512];
-            strncpy(short_msg, msg, sizeof(short_msg) - 1);
-            short_msg[sizeof(short_msg) - 1] = '\0';
-
-            printf("\033[1;33m[VANISH] %s: %s\033[0m (expires in %d sec)\n", sender, short_msg, duration);
-
-            if (vanish_index < MAX_LOCAL_VANISH)
-            {
-                vanish_messages[vanish_index].id = id;
-                vanish_messages[vanish_index].duration = duration;
-                snprintf(vanish_messages[vanish_index].content, sizeof(vanish_messages[vanish_index].content),
-                         "\033[1;33m[VANISH] %s: %s\033[0m (expires in %d sec)\n", sender, short_msg, duration);
-                vanish_index++;
-            }
+            char short_msg[1100];
+            snprintf(short_msg, sizeof(short_msg), "%s (expires in %ds)", msg, duration);
+            ui_add_message(MSG_VANISH, sender, short_msg, id);
         }
         return;
     }
@@ -248,25 +279,9 @@ static void handle_received_line(char *line)
     {
         int id;
         char newmsg[BUFFER_SIZE];
-
         if (sscanf(line, "__EDIT__:%d:%2047[^\n]", &id, newmsg) == 2)
         {
-            for (int i = 0; i < vanish_index; ++i)
-            {
-                if (vanish_messages[i].id == id)
-                {
-                    char shortmsg[1001];
-                    strncpy(shortmsg, newmsg, 1000);
-                    shortmsg[1000] = '\0';
-
-                    snprintf(vanish_messages[i].content, sizeof(vanish_messages[i].content),
-                             "\033[1;34m[EDITED] %s\033[0m\n", shortmsg);
-
-                    printf("\033[F\033[2K\r%s", vanish_messages[i].content);
-                    fflush(stdout);
-                    break;
-                }
-            }
+            ui_edit_message(id, newmsg);
         }
         return;
     }
@@ -276,34 +291,71 @@ static void handle_received_line(char *line)
         int id;
         if (sscanf(line, "__DELETE__:%d", &id) == 1)
         {
-            for (int i = 0; i < vanish_index; ++i)
-            {
-                if (vanish_messages[i].id == id)
-                {
-                    printf("\033[F\033[2K\r\033[1;31m[DELETED] Message ID %d has vanished.\033[0m\n", id);
-                    fflush(stdout);
-                    vanish_messages[i].content[0] = '\0';
-                    break;
-                }
-            }
+            ui_delete_message(id);
         }
         return;
     }
 
-    // Standard message
-    printf("%s\n", line);
+    // Standard message: Strip ANSI color codes to parse logically
+    char clean[2048];
+    strip_ansi(line, clean, sizeof(clean));
+    str_trim_lf(clean, strlen(clean));
+    if (strlen(clean) == 0) return;
+
+    char sender[32] = {0};
+    char body[1024] = {0};
+
+    if (sscanf(clean, "[%31[^]]]: %1023[^\n]", sender, body) == 2)
+    {
+        if (strcmp(sender, username) == 0)
+            ui_add_message(MSG_SELF, sender, body, 0);
+        else
+            ui_add_message(MSG_NORMAL, sender, body, 0);
+        return;
+    }
+
+    if (sscanf(clean, "[JOIN] %31s has entered", sender) == 1)
+    {
+        ui_add_user(sender);
+        ui_add_message(MSG_SYSTEM, "Server", clean, 0);
+        return;
+    }
+
+    if (sscanf(clean, "[LEAVE] %31s has left", sender) == 1)
+    {
+        ui_remove_user(sender);
+        ui_add_message(MSG_SYSTEM, "Server", clean, 0);
+        return;
+    }
+
+    if (strstr(clean, "Online users:"))
+    {
+        char *ptr = strstr(clean, "Online users:");
+        if (ptr) ui_set_users_from_string(ptr + 13);
+        ui_add_message(MSG_SYSTEM, "Server", clean, 0);
+        return;
+    }
+
+    if (strstr(clean, "joined party") || strstr(clean, "Room changed to"))
+    {
+        char room_code[16] = {0};
+        char *hash = strchr(clean, '#');
+        if (hash) sscanf(hash + 1, "%15s", room_code);
+        if (strlen(room_code) > 0) ui_set_room(room_code);
+        ui_add_message(MSG_SYSTEM, "Server", clean, 0);
+        return;
+    }
+
+    ui_add_message(MSG_SYSTEM, "Server", clean, 0);
 }
 
-void *recv_msg_handler(void *arg)
+static void *recv_msg_handler(void *arg)
 {
     (void)arg;
     char buffer[LENGTH] = {};
 
-    while (1)
+    while (!flag)
     {
-        if (flag)
-            break;
-
         fd_set read_fds;
         struct timeval timeout;
 
@@ -320,9 +372,6 @@ void *recv_msg_handler(void *arg)
             if (receive > 0)
             {
                 buffer[receive] = '\0';
-                printf("\r\033[K"); // Clear prompt line
-
-                // Split by newline and handle each line
                 char *saveptr = NULL;
                 char *line = strtok_r(buffer, "\n", &saveptr);
                 while (line != NULL)
@@ -330,17 +379,20 @@ void *recv_msg_handler(void *arg)
                     handle_received_line(line);
                     line = strtok_r(NULL, "\n", &saveptr);
                 }
-
-                // Redraw prompt
-                printf("> %s", input);
-                fflush(stdout);
+                ui_render(input, cursor_pos, current_suggestion);
             }
             else
             {
                 flag = 1;
-                printf("\r\033[K\033[1;31m[CLIENT] Server disconnected.\033[0m\n");
+                ui_add_message(MSG_ERROR, "Client", "Connection to server lost.", 0);
+                ui_render(input, cursor_pos, NULL);
                 break;
             }
+        }
+        else
+        {
+            // Heartbeat redraw to expire typing indicators or progress bars
+            ui_render(input, cursor_pos, current_suggestion);
         }
 
         memset(buffer, 0, sizeof(buffer));
@@ -349,7 +401,7 @@ void *recv_msg_handler(void *arg)
     return NULL;
 }
 
-void *file_ticker_thread(void *arg)
+static void *file_ticker_thread(void *arg)
 {
     (void)arg;
     while (!flag)
@@ -360,17 +412,14 @@ void *file_ticker_thread(void *arg)
     return NULL;
 }
 
-void chat_loop()
+static void chat_loop(void)
 {
     fd_set readfds;
     unsigned char ch;
     time_t last_typing_sent = 0;
 
-    while (1)
+    while (!flag)
     {
-        if (flag)
-            break;
-
         FD_ZERO(&readfds);
         FD_SET(STDIN_FILENO, &readfds);
         struct timeval tv;
@@ -386,50 +435,131 @@ void chat_loop()
             if (read(STDIN_FILENO, &ch, 1) <= 0)
                 continue;
 
-            // Handle Escape sequences (Arrow keys)
+            // Handle Escape sequences (Arrows, PageUp, PageDown)
             if (ch == 27)
             {
-                unsigned char seq1 = 0, seq2 = 0;
-                if (read(STDIN_FILENO, &seq1, 1) > 0 && read(STDIN_FILENO, &seq2, 1) > 0)
+                unsigned char seq1 = 0, seq2 = 0, seq3 = 0;
+                if (read(STDIN_FILENO, &seq1, 1) > 0)
                 {
                     if (seq1 == '[')
                     {
-                        if (seq2 == 'A') // Up Arrow -> Previous history
+                        if (read(STDIN_FILENO, &seq2, 1) > 0)
                         {
-                            if (history_pos > 0)
+                            if (seq2 == 'A') // Up Arrow
                             {
-                                history_pos--;
-                                strncpy(input, history[history_pos % HISTORY_MAX], sizeof(input) - 1);
-                                input[sizeof(input) - 1] = '\0';
-                                input_len = strlen(input);
-                                printf("\r\033[K> %s", input);
-                                fflush(stdout);
-                            }
-                            continue;
-                        }
-                        else if (seq2 == 'B') // Down Arrow -> Next history
-                        {
-                            if (history_pos < history_count)
-                            {
-                                history_pos++;
-                                if (history_pos == history_count)
+                                if (input_len == 0)
                                 {
-                                    input[0] = '\0';
-                                    input_len = 0;
+                                    ui_scroll_up(1);
+                                    ui_render(input, cursor_pos, current_suggestion);
                                 }
-                                else
+                                else if (history_pos > 0)
                                 {
+                                    history_pos--;
                                     strncpy(input, history[history_pos % HISTORY_MAX], sizeof(input) - 1);
                                     input[sizeof(input) - 1] = '\0';
-                                    input_len = strlen(input);
+                                    input_len = (int)strlen(input);
+                                    cursor_pos = input_len;
+                                    update_command_suggestion();
+                                    ui_render(input, cursor_pos, current_suggestion);
                                 }
-                                printf("\r\033[K> %s", input);
-                                fflush(stdout);
+                                continue;
                             }
-                            continue;
+                            else if (seq2 == 'B') // Down Arrow
+                            {
+                                if (input_len == 0)
+                                {
+                                    ui_scroll_down(1);
+                                    ui_render(input, cursor_pos, current_suggestion);
+                                }
+                                else if (history_pos < history_count)
+                                {
+                                    history_pos++;
+                                    if (history_pos == history_count)
+                                    {
+                                        input[0] = '\0';
+                                        input_len = 0;
+                                        cursor_pos = 0;
+                                    }
+                                    else
+                                    {
+                                        strncpy(input, history[history_pos % HISTORY_MAX], sizeof(input) - 1);
+                                        input[sizeof(input) - 1] = '\0';
+                                        input_len = (int)strlen(input);
+                                        cursor_pos = input_len;
+                                    }
+                                    update_command_suggestion();
+                                    ui_render(input, cursor_pos, current_suggestion);
+                                }
+                                continue;
+                            }
+                            else if (seq2 == 'C') // Right Arrow
+                            {
+                                if (cursor_pos < input_len) cursor_pos++;
+                                ui_render(input, cursor_pos, current_suggestion);
+                                continue;
+                            }
+                            else if (seq2 == 'D') // Left Arrow
+                            {
+                                if (cursor_pos > 0) cursor_pos--;
+                                ui_render(input, cursor_pos, current_suggestion);
+                                continue;
+                            }
+                            else if (seq2 == 'H') // Home
+                            {
+                                cursor_pos = 0;
+                                ui_render(input, cursor_pos, current_suggestion);
+                                continue;
+                            }
+                            else if (seq2 == 'F') // End
+                            {
+                                cursor_pos = input_len;
+                                ui_render(input, cursor_pos, current_suggestion);
+                                continue;
+                            }
+                            else if (seq2 == '5') // PageUp (seq: [5~)
+                            {
+                                if (read(STDIN_FILENO, &seq3, 1) > 0 && seq3 == '~')
+                                {
+                                    ui_scroll_up(10);
+                                    ui_render(input, cursor_pos, current_suggestion);
+                                }
+                                continue;
+                            }
+                            else if (seq2 == '6') // PageDown (seq: [6~)
+                            {
+                                if (read(STDIN_FILENO, &seq3, 1) > 0 && seq3 == '~')
+                                {
+                                    ui_scroll_down(10);
+                                    ui_render(input, cursor_pos, current_suggestion);
+                                }
+                                continue;
+                            }
+                            else if (seq2 == '3') // Delete (seq: [3~)
+                            {
+                                if (read(STDIN_FILENO, &seq3, 1) > 0 && seq3 == '~')
+                                {
+                                    if (cursor_pos < input_len)
+                                    {
+                                        memmove(&input[cursor_pos], &input[cursor_pos + 1], input_len - cursor_pos);
+                                        input_len--;
+                                        input[input_len] = '\0';
+                                        update_command_suggestion();
+                                        ui_render(input, cursor_pos, current_suggestion);
+                                    }
+                                }
+                                continue;
+                            }
                         }
                     }
                 }
+                continue;
+            }
+
+            // Ctrl+L (Redraw screen)
+            if (ch == 12)
+            {
+                ui_resize();
+                ui_render(input, cursor_pos, current_suggestion);
                 continue;
             }
 
@@ -451,22 +581,15 @@ void chat_loop()
                     if (matches == 1 && match)
                     {
                         snprintf(input, sizeof(input), "%s ", match);
-                        input_len = strlen(input);
-                        printf("\r\033[K> %s", input);
-                        fflush(stdout);
+                        input_len = (int)strlen(input);
+                        cursor_pos = input_len;
+                        update_command_suggestion();
+                        ui_render(input, cursor_pos, current_suggestion);
                     }
                     else if (matches > 1)
                     {
-                        printf("\n\033[2mSuggestions: ");
-                        for (int i = 0; tab_commands[i] != NULL; ++i)
-                        {
-                            if (strncmp(tab_commands[i], input, input_len) == 0)
-                            {
-                                printf("%s ", tab_commands[i]);
-                            }
-                        }
-                        printf("\033[0m\n> %s", input);
-                        fflush(stdout);
+                        update_command_suggestion();
+                        ui_render(input, cursor_pos, current_suggestion);
                     }
                 }
                 continue;
@@ -475,14 +598,20 @@ void chat_loop()
             // Backspace
             if (ch == 127 || ch == 8)
             {
-                if (input_len > 0)
+                if (cursor_pos > 0)
                 {
-                    input[--input_len] = '\0';
-                    printf("\r\033[K> %s", input);
-                    fflush(stdout);
+                    memmove(&input[cursor_pos - 1], &input[cursor_pos], input_len - cursor_pos + 1);
+                    cursor_pos--;
+                    input_len--;
+                    input[input_len] = '\0';
+                    update_command_suggestion();
+                    ui_render(input, cursor_pos, current_suggestion);
                 }
+                continue;
             }
-            else if (ch == '\n')
+
+            // Enter (Send message or execute command)
+            if (ch == '\n' || ch == '\r')
             {
                 input[input_len] = '\0';
                 history_add(input);
@@ -491,6 +620,17 @@ void chat_loop()
                 {
                     flag = 1;
                     break;
+                }
+
+                if (strcmp(input, "/clear") == 0)
+                {
+                    ui_clear_messages();
+                    input_len = 0;
+                    cursor_pos = 0;
+                    input[0] = '\0';
+                    current_suggestion[0] = '\0';
+                    ui_render(input, cursor_pos, current_suggestion);
+                    continue;
                 }
 
                 if (strncmp(input, "/e2ee ", 6) == 0)
@@ -519,21 +659,23 @@ void chat_loop()
                             char send_buf[sizeof(e2ee_packet) + 32];
                             snprintf(send_buf, sizeof(send_buf), "%s\n", e2ee_packet);
                             send(sockfd, send_buf, strlen(send_buf), 0);
-                            printf("\033[1;32m🔒 [E2EE to %s]: %s\033[0m\n", target, plaintext);
+                            ui_add_message(MSG_E2EE, target, plaintext, 0);
                         }
                         else
                         {
-                            printf("\033[1;31m[E2EE ERROR] Could not establish Double Ratchet session with '%s' (user not found or no public key).\033[0m\n", target);
+                            ui_add_message(MSG_ERROR, "E2EE", "Could not establish Double Ratchet session.", 0);
                         }
                     }
                     else
                     {
-                        printf("[E2EE] Usage: /e2ee <username> <message>\n");
+                        ui_add_message(MSG_SYSTEM, "Usage", "/e2ee <username> <message>", 0);
                     }
                     input_len = 0;
+                    cursor_pos = 0;
                     input[0] = '\0';
-                    printf("\r\033[K> ");
-                    fflush(stdout);
+                    current_suggestion[0] = '\0';
+                    ui_scroll_bottom();
+                    ui_render(input, cursor_pos, current_suggestion);
                     continue;
                 }
 
@@ -544,15 +686,20 @@ void chat_loop()
                     if (sscanf(input + 10, "%31s %255s", target, filepath) == 2)
                     {
                         file_transfer_start_send(target, filepath, sockfd);
+                        char msg[512];
+                        snprintf(msg, sizeof(msg), "Sent transfer offer for '%s' to %s.", filepath, target);
+                        ui_add_message(MSG_FILE, target, msg, 0);
                     }
                     else
                     {
-                        printf("[FILE] Usage: /sendfile <username> <filepath>\n");
+                        ui_add_message(MSG_SYSTEM, "Usage", "/sendfile <username> <filepath>", 0);
                     }
                     input_len = 0;
+                    cursor_pos = 0;
                     input[0] = '\0';
-                    printf("\r\033[K> ");
-                    fflush(stdout);
+                    current_suggestion[0] = '\0';
+                    ui_scroll_bottom();
+                    ui_render(input, cursor_pos, current_suggestion);
                     continue;
                 }
 
@@ -562,15 +709,13 @@ void chat_loop()
                     if (sscanf(input + 12, "%d", &fid) == 1)
                     {
                         file_transfer_accept(fid, sockfd);
-                    }
-                    else
-                    {
-                        printf("[FILE] Usage: /fileaccept <transfer_id>\n");
+                        ui_add_message(MSG_FILE, "Me", "Accepted file transfer.", fid);
                     }
                     input_len = 0;
+                    cursor_pos = 0;
                     input[0] = '\0';
-                    printf("\r\033[K> ");
-                    fflush(stdout);
+                    current_suggestion[0] = '\0';
+                    ui_render(input, cursor_pos, current_suggestion);
                     continue;
                 }
 
@@ -580,77 +725,67 @@ void chat_loop()
                     if (sscanf(input + 13, "%d", &fid) == 1)
                     {
                         file_transfer_decline(fid, sockfd);
-                    }
-                    else
-                    {
-                        printf("[FILE] Usage: /filedecline <transfer_id>\n");
+                        ui_add_message(MSG_FILE, "Me", "Declined file transfer.", fid);
                     }
                     input_len = 0;
+                    cursor_pos = 0;
                     input[0] = '\0';
-                    printf("\r\033[K> ");
-                    fflush(stdout);
+                    current_suggestion[0] = '\0';
+                    ui_render(input, cursor_pos, current_suggestion);
                     continue;
                 }
 
-                if (strncmp(input, "/emoji", 6) == 0)
+                if (strncmp(input, "/joinparty ", 11) == 0)
                 {
-                    int num;
-                    if (sscanf(input, "/emoji %d", &num) == 1)
+                    char pcode[16] = {0};
+                    if (sscanf(input + 11, "%15s", pcode) == 1)
                     {
-                        const char *emoji = get_emoji_by_index(num);
-                        if (emoji)
-                        {
-                            snprintf(input, INPUT_BUFFER, "%s", emoji);
-                            send(sockfd, input, strlen(input), 0);
-                        }
-                        else
-                        {
-                            printf("Invalid emoji index.\n");
-                        }
+                        ui_set_room(pcode);
                     }
-                    else
-                    {
-                        display_emoji_tab_with_index();
-                    }
-                    input_len = 0;
-                    input[0] = '\0';
-                    printf("\r\033[K> ");
-                    fflush(stdout);
-                    continue;
                 }
 
-                if (strcmp(input, "/clear") == 0)
+                if (strcmp(input, "/leaveparty") == 0)
                 {
-                    printf("\033[2J\033[H");
-                    fflush(stdout);
-                    input_len = 0;
-                    input[0] = '\0';
-                    printf("\r\033[K> ");
-                    fflush(stdout);
-                    continue;
+                    ui_set_room("0000");
                 }
 
                 if (input_len > 0)
                 {
-                    send(sockfd, input, strlen(input), 0);
+                    char send_buf[INPUT_BUFFER + 4];
+                    snprintf(send_buf, sizeof(send_buf), "%s\n", input);
+                    send(sockfd, send_buf, strlen(send_buf), 0);
                 }
-                input_len = 0;
-                input[0] = '\0';
-                printf("\r\033[K> ");
-                fflush(stdout);
-            }
-            else if (input_len < INPUT_BUFFER - 4)
-            {
-                input[input_len++] = ch;
-                input[input_len] = '\0';
-                printf("\r\033[K> %s", input);
-                fflush(stdout);
 
-                // Send typing packet if user is typing text (not a command)
-                if (input[0] != '/' && (time(NULL) - last_typing_sent >= 3))
+                input_len = 0;
+                cursor_pos = 0;
+                input[0] = '\0';
+                current_suggestion[0] = '\0';
+                ui_scroll_bottom();
+                ui_render(input, cursor_pos, current_suggestion);
+                continue;
+            }
+
+            // Printable character input
+            if (ch >= 32 && ch <= 126)
+            {
+                if (input_len < INPUT_BUFFER - 4)
                 {
-                    send(sockfd, "__TYPING__\n", 11, 0);
-                    last_typing_sent = time(NULL);
+                    if (cursor_pos < input_len)
+                    {
+                        memmove(&input[cursor_pos + 1], &input[cursor_pos], input_len - cursor_pos);
+                    }
+                    input[cursor_pos++] = ch;
+                    input_len++;
+                    input[input_len] = '\0';
+                    update_command_suggestion();
+                    ui_render(input, cursor_pos, current_suggestion);
+
+                    // Send live typing pulse every 3 seconds for non-command typing
+                    if (input[0] != '/' && (time(NULL) - last_typing_sent >= 3))
+                    {
+                        send(sockfd, "__TYPING__\n", 11, 0);
+                        last_typing_sent = time(NULL);
+                    }
                 }
             }
         }
@@ -686,7 +821,11 @@ int main(int argc, char **argv)
     signal(SIGINT, catch_ctrl_c_and_exit);
     signal(SIGPIPE, SIG_IGN);
 
+    printf("============================================================\n");
+    printf("   KUKUPU CHAT - CLIENT INITIALIZATION\n");
+    printf("============================================================\n");
     printf("Enter your username: ");
+    fflush(stdout);
     if (fgets(username, sizeof(username), stdin) == NULL)
     {
         return EXIT_FAILURE;
@@ -720,6 +859,7 @@ int main(int argc, char **argv)
 
     send(sockfd, username, strlen(username), 0);
 
+    // Administrative Challenge-Response Authentication
     if (strcmp(username, "admin") == 0)
     {
         for (int i = 0; i < MAX_TRIES; i++)
@@ -728,7 +868,7 @@ int main(int argc, char **argv)
             int rlen = client_recv_line(sockfd, res, sizeof(res));
             if (rlen <= 0)
             {
-                printf("Cannot receive from server!!\n");
+                printf("Cannot receive from server!\n");
                 close(sockfd);
                 return EXIT_FAILURE;
             }
@@ -751,7 +891,7 @@ int main(int argc, char **argv)
                 int res_len = client_recv_line(sockfd, result, sizeof(result));
                 if (res_len <= 0)
                 {
-                    printf("Cannot receive from server!!\n");
+                    printf("Cannot receive from server!\n");
                     close(sockfd);
                     return EXIT_FAILURE;
                 }
@@ -772,7 +912,7 @@ int main(int argc, char **argv)
                 }
                 else if (strcmp(result, "try") == 0)
                 {
-                    printf("\n %d tries left!!\n", MAX_TRIES - i - 1);
+                    printf("\n [!] %d tries left!\n", MAX_TRIES - i - 1);
                     fflush(stdout);
                 }
                 else
@@ -803,9 +943,9 @@ int main(int argc, char **argv)
     snprintf(key_pkt, sizeof(key_pkt), "__IDKEY__:%s\n", my_pub_hex);
     send(sockfd, key_pkt, strlen(key_pkt), 0);
 
-    printf("\033[1;32m[CLIENT] Connected. Type /help for commands, /exit to quit.\033[0m\n");
-    printf("> ");
-    fflush(stdout);
+    // Initialize the full-screen terminal TUI interface
+    ui_init(username);
+    file_transfer_set_progress_callback(ui_set_file_progress);
 
     enable_raw_mode();
 
@@ -813,11 +953,16 @@ int main(int argc, char **argv)
     pthread_create(&recv_thread, NULL, recv_msg_handler, NULL);
     pthread_create(&file_thread, NULL, file_ticker_thread, NULL);
 
+    // Query active members to populate sidebar
+    send(sockfd, "/users\n", 7, 0);
+
+    ui_render(input, 0, NULL);
+
     chat_loop();
 
     disable_raw_mode();
+    ui_shutdown();
 
-    printf("\n\033[1;31m[CLIENT] Disconnected.\033[0m\n");
     file_transfer_cleanup();
     e2ee_cleanup();
     close(sockfd);

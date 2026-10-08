@@ -65,7 +65,7 @@ static int recv_line(int s, char *buf, size_t max_len, int timeout_sec)
 int main()
 {
     printf("\n============================================================\n");
-    printf("   SOC CHAT APP - FULL END-TO-END AUTOMATED TEST SUITE\n");
+    printf("   KUKUPU CHAT - FULL END-TO-END AUTOMATED TEST SUITE\n");
     printf("============================================================\n\n");
 
     e2ee_init();

@@ -1,11 +1,11 @@
-# 🧠 Advance Terminal Chat App in C — Master Cognitive & Architecture Mind Map (mind.md)
+# Kukupu Chat in C — Master Cognitive & Architecture Mind Map (mind.md)
 
-> **Advance Terminal Chat App in C** is an enterprise-grade, multi-client, multi-threaded terminal communication system developed from scratch in pure C for Linux.
+> **Kukupu Chat in C** is an enterprise-grade, multi-client, multi-threaded terminal communication system developed from scratch in pure C for Linux.
 > This document (`mind.md`) serves as the definitive cognitive architecture, engineering mental model, and comprehensive component blueprint for the entire codebase—mapping its conceptual foundation, socket mechanics, threading models, wire protocols, command systems, security mechanisms, and phase-by-phase evolution from Phase 1 to Phase 6 and beyond.
 
 ---
 
-## 📑 Table of Contents
+## Table of Contents
 
 1. [Executive Overview & System Philosophy](#1-executive-overview--system-philosophy)
 2. [Macro Architecture & Technology Stack](#2-macro-architecture--technology-stack)
@@ -34,6 +34,7 @@
    - [7.7 80-Emoji UTF-8 Palette Engine](#77-80-emoji-utf-8-palette-engine)
    - [7.8 Persistent Lastseen & Activity Auditing](#78-persistent-lastseen--activity-auditing)
    - [7.9 Terminal Raw Mode UI (`termios` & `select`)](#79-terminal-raw-mode-ui-termios--select)
+   - [7.10 Full-Screen Terminal User Interface (TUI Subsystem)](#710-full-screen-terminal-user-interface-tui-subsystem)
 8. [File Structure & Module Map](#8-file-structure--module-map)
 9. [Build, Deployment & Containerization](#9-build-deployment--containerization)
 10. [Checklist, Known Limitations & Roadmap (Phases 7–12)](#10-checklist-known-limitations--roadmap-phases-712)
@@ -42,7 +43,7 @@
 
 ## 1. Executive Overview & System Philosophy
 
-The **Advance Terminal Chat App in C** is designed to prove that full-featured, interactive, real-time multi-room chat systems can be constructed without high-level runtimes (Node.js, Go, Python), relying purely on native **POSIX system calls**, **TCP/IP Berkeley sockets**, and low-level **C standard library** primitives.
+The **Kukupu Chat in C** is designed to prove that full-featured, interactive, real-time multi-room chat systems can be constructed without high-level runtimes (Node.js, Go, Python), relying purely on native **POSIX system calls**, **TCP/IP Berkeley sockets**, and low-level **C standard library** primitives.
 
 ### Core Design Principles
 1. **Low-Level Native Performance**: Minimal memory overhead per client, zero garbage collection pauses, and direct kernel socket manipulation.
@@ -614,25 +615,59 @@ All commands are processed by `handle_command()` in [`phase-6/commands.c`](file:
 - **Line Clearing & Input Redraw**:
   - Uses ANSI escape sequence `\r\033[K` to clear the current terminal line before printing incoming broadcast messages, then redraws the user's active input buffer.
 
+### 7.10 Full-Screen Terminal User Interface (TUI Subsystem)
+
+The client features a zero-dependency, pure C terminal user interface engine implemented in `ui.h` and `ui.c`:
+
+- **Alternate Screen Buffer Switching**:
+  - On startup, sends `\033[?1049h\033[2J\033[H` to switch into the terminal's private buffer.
+  - On exit, sends `\033[?1049l\033[?25h` to restore the user's primary terminal shell buffer and re-enable cursor visibility.
+- **Atomic Double-Buffering (Zero-Flicker)**:
+  - Compiles the entire screen frame (header, message viewport, sidebar, status bar, input container) into a 64 KB memory buffer (`frame[FRAME_BUF_SIZE]`).
+  - Emits the frame using a single `write(STDOUT_FILENO, frame, len)` system call, eliminating terminal tearing, cursor jitter, and stdout race conditions.
+- **Split-Pane Architecture**:
+  - **Header Bar**: Displays application brand (`[KUKUPU CHAT]`), room indicator (`Room: #0000`), E2EE status badge, and user handle (`User: @alice`).
+  - **Main Viewport**: Indented chat messages with timestamps (`[HH:MM]`), badges (`<bob>`, `[YOU]`, `[E2EE:bob]`, `--- [SYS] ---`, `[FILE:bob]`), and dynamic word wrapping.
+  - **Collapsible Sidebar**: On terminals $\ge 80$ columns, displays a 22-column panel showing member count (`[MEMBERS (N)]`), user handles, and room mode (`[CHANNEL #0000]`). Autohides on compact screens.
+  - **Dedicated Status Bar**: Separates chat log from input prompt; displays live typing pulses (`Typing: bob is typing a message...`) and in-band file transfer progress bars.
+  - **Pinned Input Box**: Rounded box container (`╭───╮ │ > ... │ ╰───╯`) at the bottom rows with hardware cursor synchronization.
+- **Dynamic Resize Support (`SIGWINCH`)**:
+  - Hooks `SIGWINCH` signal and queries terminal dimensions via `ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws)`.
+  - Automatically recalculates line wraps, sidebar visibility, and viewport capacities on window resize.
+- **Scrollback History & Keyboard Navigation**:
+  - Maintains an internal ring buffer of up to 600 messages.
+  - Supports `PageUp` / `PageDown` scrolling, `Tab` command autocompletion, `Up` / `Down` input history navigation, `Left` / `Right` cursor movement, and `Ctrl+L` screen refresh.
+- **Zero-Emoji Clean ASCII Aesthetic**:
+  - Strictly uses clean UTF-8 / ASCII box-drawing characters (`┌`, `─`, `┐`, `│`, `└`, `┘`, `╭`, `╰`, `╮`, `╯`, `├`, `┤`, `*`, `>`), maintaining a high-contrast, professional cybersecurity terminal aesthetic.
+
 ---
 
 ## 8. File Structure & Module Map
 
-Complete directory tree of [`phase-6/`](file:///home/sahilrana/Music/chatapp/Chat-App/phase-6):
+Complete directory tree of Kukupu Chat:
 
 ```
-phase-6/
-├── Makefile            # Build script compiling all object targets with -Wall -Wextra -pthread
+.
+├── Makefile            # Build script compiling all object targets with -Wall -Wextra -pthread -O2
 ├── Dockerfile          # Multi-stage container recipe for headless server deployment
 ├── docker-compose.yml  # Container orchestration mapping port 9001:9001
 ├── checklist           # Active developer notes and future milestone tasks
+├── README.md           # Comprehensive project manual and ASCII interface diagram
+├── mind.md             # Master cognitive architecture & blueprint
 │
 ├── common.h            # Global macro definitions, client_t structure, port numbers, buffer sizes
 ├── client.h            # Shared client helper declarations (send_to_client, broadcast)
 ├── utils.h / utils.c   # String manipulation, newline trimming, formatted send helpers
 │
 ├── server.c            # Master daemon: socket init, accept loop, client threading, admin auth
-├── client.c            # Production client: raw mode termios, select() multiplexing, emoji handling
+├── client.c            # Production client: raw mode termios, select() multiplexing, command loop
+├── ui.h / ui.c         # Zero-flicker double-buffered full-screen terminal TUI engine
+│
+├── crypto_utils.h / .c # OpenSSL 3.0 crypto: X25519, HKDF-SHA256, AES-256-GCM, PBKDF2
+├── e2ee.h / .c         # Signal Double Ratchet session management and packet envelopes
+├── file_transfer.h / .c# In-band chunked file streaming engine with SHA-256 integrity
+├── ratelimit.h / .c    # Token bucket rate limiter & per-IP connection DoS defense
+├── db.h / .c           # PBKDF2 credential storage, offline inbox & key directory
 │
 ├── commands.h / .c     # Command router: parsing /help, /msg, /time, /uptime, /setcolor, etc.
 ├── admin.h / admin.c   # Administrative command implementations: kick, ban, unban, pin, whois
@@ -641,11 +676,13 @@ phase-6/
 ├── party.h / party.c   # Multi-room party engine: creation, joining, locking, and invites
 ├── vanish.h / vanish.c # Ephemeral vanishing message engine & background cleaner thread
 ├── game.h / game.c     # Number guessing game state machine and turn cycling
-├── pwdgen.h / pwdgen.c # Reversible obfuscation cipher for administrative password verification
+├── pwdgen.h / pwdgen.c # Legacy administrative password verification
 ├── emoji.h / emoji.c   # 80-item categorized UTF-8 emoji table and interactive panel
 ├── lastseen.h / .c     # Binary serialized user logout tracker (.lastseen)
 ├── motd.h / motd.c     # Message of the Day loader and updater (motd.txt)
-└── log.h / log.c       # Timestamped operational event logger writing to server.log
+├── log.h / log.c       # Timestamped operational event logger writing to server.log
+│
+└── test_e2e_full.c     # Socket-level automated end-to-end integration test suite
 ```
 
 ---
@@ -789,4 +826,4 @@ docker-compose up -d --build
 
 ---
 
-*Compiled by comprehensive static and dynamic analysis of the Advance Terminal Chat App in C codebase.*
+*Compiled by comprehensive static and dynamic analysis of the Kukupu Chat in C codebase.*
