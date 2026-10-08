@@ -1,4 +1,30 @@
+# Binaries
+server
+client
+test_e2e_full
+
+# Objects & Archives
+*.o
+*.a
+*.so
+
+# Runtime generated databases and persistence files
+admin.cred
+user_keys.dat
+offline_inbox.dat
+.lastseen
+banned.txt
+motd.txt
+server.log
+pwd.env
+downloads/
+
+# Test artifacts
+test_payload.bin
+server_test.log
+
+# IDE & Editor files
 .vscode/
-.vscode/*
-phase-6/pwd.env
-.vscode/
+.idea/
+*.swp
+*~
